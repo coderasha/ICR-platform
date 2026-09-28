@@ -1,4 +1,10 @@
 packages:
-  - "apps/*"
-  - "packages/*"
-  - "services/*"
+  - apps/*
+  - packages/*
+  - services/*
+
+ignoredBuiltDependencies:
+  - '@prisma/client'
+  - '@prisma/engines'
+  - argon2
+  - prisma

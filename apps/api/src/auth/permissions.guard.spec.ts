@@ -28,15 +28,20 @@ function createContext(user?: AuthenticatedUser): ExecutionContext {
 
 describe('PermissionsGuard', () => {
   function createGuard(requiredPermissions?: string[]) {
-    const reflector = {
-      getAllAndOverride: vi.fn().mockReturnValue(requiredPermissions),
-    } as unknown as Reflector;
+  const getAllAndOverrideMock = vi
+    .fn()
+    .mockReturnValue(requiredPermissions);
 
-    return {
-      guard: new PermissionsGuard(reflector),
-      reflector,
-    };
-  }
+  const reflector = {
+    getAllAndOverride: getAllAndOverrideMock,
+  } as unknown as Reflector;
+
+  return {
+    guard: new PermissionsGuard(reflector),
+    reflector,
+    getAllAndOverrideMock,
+  };
+}
 
   it('allows endpoints without permission requirements', () => {
     const { guard } = createGuard(undefined);
@@ -87,15 +92,17 @@ describe('PermissionsGuard', () => {
   });
 
   it('checks handler and class metadata', () => {
-    const { guard, reflector } = createGuard(['organizations:read']);
+  const { guard, getAllAndOverrideMock } = createGuard([
+    'organizations:read',
+  ]);
 
-    guard.canActivate(createContext(createUser(['organizations:read'])));
+  guard.canActivate(
+    createContext(createUser(['organizations:read'])),
+  );
 
-    const calls = vi.mocked(reflector.getAllAndOverride).mock.calls;
-
-expect(calls[0]).toEqual([
-  REQUIRED_PERMISSIONS_KEY,
-  expect.any(Array),
-]);
-  });
+  expect(getAllAndOverrideMock).toHaveBeenCalledWith(
+    REQUIRED_PERMISSIONS_KEY,
+    expect.any(Array),
+  );
+});
 });

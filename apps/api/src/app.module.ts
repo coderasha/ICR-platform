@@ -7,12 +7,13 @@ import { OrganizationsModule } from './organizations/organizations.module.js';
 import { AuthModule } from './auth/auth.module.js';
 
 @Module({
-  imports: [
+    imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '../../.env',
     }),
     PrismaModule,
+    AuthModule,
     OrganizationsModule,
   ],
   controllers: [AppController],

@@ -7,6 +7,13 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api/v1');
 
+  const webOrigin = process.env.WEB_ORIGIN ?? 'http://localhost:3000';
+  app.enableCors({
+    origin: webOrigin,
+    credentials: true,
+    methods: ['GET', 'POST', 'PATCH'],
+  });
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

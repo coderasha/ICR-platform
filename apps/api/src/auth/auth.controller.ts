@@ -6,9 +6,10 @@ import {
   HttpStatus,
   Post,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { AuthService } from './auth.service.js';
 import { LoginDto } from './dto/login.dto.js';
 import { JwtAuthGuard } from './jwt-auth.guard.js';
@@ -24,8 +25,28 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  async login(@Body() dto: LoginDto) {
-    return this.authService.login(dto);
+  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) response: Response) {
+    const result = await this.authService.login(dto);
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    response.cookie('icr_session', result.accessToken, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: isProduction,
+      maxAge: result.expiresIn * 1000,
+      path: '/',
+    });
+
+    return {
+      expiresIn: result.expiresIn,
+      user: result.user,
+    };
+  }
+
+  @Post('logout')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  logout(@Res({ passthrough: true }) response: Response): void {
+    response.clearCookie('icr_session', { path: '/' });
   }
 
   @Get('me')

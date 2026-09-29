@@ -5,6 +5,8 @@ const prisma = new PrismaClient();
 const permissions = [
   ['organizations:read', 'View organizations'],
   ['organizations:manage', 'Manage organizations'],
+  ['master_data:read', 'View organization master data'],
+  ['master_data:manage', 'Manage organization master data'],
   ['reconciliation:read', 'View reconciliation records'],
   ['reconciliation:execute', 'Execute reconciliation'],
   ['exceptions:read', 'View reconciliation exceptions'],
@@ -32,6 +34,8 @@ const roleDefinitions = [
     permissions: [
       'organizations:read',
       'organizations:manage',
+      'master_data:read',
+      'master_data:manage',
       'reconciliation:read',
       'reconciliation:execute',
       'exceptions:read',
@@ -115,13 +119,11 @@ async function main() {
       update: {
         name: definition.name,
         description: definition.description,
-        isSystemRole: true,
       },
       create: {
         code: definition.code,
         name: definition.name,
         description: definition.description,
-        isSystemRole: true,
       },
     });
 

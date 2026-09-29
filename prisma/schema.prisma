@@ -53,11 +53,7 @@ model LegalEntity {
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization Organization @relation(
-    fields: [organizationId],
-    references: [id],
-    onDelete: Restrict
-  )
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
   counterparties Counterparty[]
   accounts      Account[]
@@ -89,7 +85,7 @@ model User {
   createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  userRoles      UserRole[]
+  roles          UserRole[]
   organizationAccesses UserOrganizationAccess[]
 
   @@index([isActive])
@@ -106,7 +102,7 @@ model Role {
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   userRoles       UserRole[]
-  rolePermissions RolePermission[]
+  permissions     RolePermission[]
 
   @@map("roles")
 }
@@ -130,23 +126,11 @@ model UserRole {
   organizationId String?  @map("organization_id") @db.Uuid
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  user User @relation(
-    fields: [userId],
-    references: [id],
-    onDelete: Cascade
-  )
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  role Role @relation(
-    fields: [roleId],
-    references: [id],
-    onDelete: Restrict
-  )
+  role Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
 
-  organization Organization? @relation(
-    fields: [organizationId],
-    references: [id],
-    onDelete: Restrict
-  )
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
   @@unique([userId, roleId, organizationId])
   @@index([userId])
@@ -161,17 +145,9 @@ model RolePermission {
   permissionId String   @map("permission_id") @db.Uuid
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  role Role @relation(
-    fields: [roleId],
-    references: [id],
-    onDelete: Cascade
-  )
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
-  permission Permission @relation(
-    fields: [permissionId],
-    references: [id],
-    onDelete: Cascade
-  )
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
 
   @@unique([roleId, permissionId])
   @@index([permissionId])
@@ -184,17 +160,9 @@ model UserOrganizationAccess {
   organizationId String   @map("organization_id") @db.Uuid
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  user User @relation(
-    fields: [userId],
-    references: [id],
-    onDelete: Cascade
-  )
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  organization Organization @relation(
-    fields: [organizationId],
-    references: [id],
-    onDelete: Cascade
-  )
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([userId, organizationId])
   @@index([organizationId])
@@ -217,17 +185,9 @@ model Counterparty {
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization Organization @relation(
-    fields: [organizationId],
-    references: [id],
-    onDelete: Restrict
-  )
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
-  legalEntity LegalEntity @relation(
-    fields: [organizationId, legalEntityId],
-    references: [organizationId, id],
-    onDelete: Restrict
-  )
+  legalEntity LegalEntity @relation(fields: [organizationId, legalEntityId], references: [organizationId, id], onDelete: Restrict)
 
   @@unique([legalEntityId, code])
   @@index([organizationId, isActive])
@@ -251,17 +211,9 @@ model Account {
   createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization Organization @relation(
-    fields: [organizationId],
-    references: [id],
-    onDelete: Restrict
-  )
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
-  legalEntity LegalEntity @relation(
-    fields: [organizationId, legalEntityId],
-    references: [organizationId, id],
-    onDelete: Restrict
-  )
+  legalEntity LegalEntity @relation(fields: [organizationId, legalEntityId], references: [organizationId, id], onDelete: Restrict)
 
   @@unique([legalEntityId, code])
   @@index([organizationId, isActive])
@@ -286,25 +238,11 @@ model IntercompanyRelationship {
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization Organization @relation(
-    fields: [organizationId],
-    references: [id],
-    onDelete: Restrict
-  )
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
-  sourceLegalEntity LegalEntity @relation(
-    "SourceLegalEntity",
-    fields: [organizationId, sourceLegalEntityId],
-    references: [organizationId, id],
-    onDelete: Restrict
-  )
+  sourceLegalEntity LegalEntity @relation("SourceLegalEntity", fields: [organizationId, sourceLegalEntityId], references: [organizationId, id], onDelete: Restrict)
 
-  targetLegalEntity LegalEntity @relation(
-    "TargetLegalEntity",
-    fields: [organizationId, targetLegalEntityId],
-    references: [organizationId, id],
-    onDelete: Restrict
-  )
+  targetLegalEntity LegalEntity @relation("TargetLegalEntity", fields: [organizationId, targetLegalEntityId], references: [organizationId, id], onDelete: Restrict)
 
   @@unique([organizationId, sourceLegalEntityId, targetLegalEntityId])
   @@index([organizationId, isActive])

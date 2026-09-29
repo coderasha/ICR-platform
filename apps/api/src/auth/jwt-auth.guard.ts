@@ -17,6 +17,17 @@ type AuthenticatedRequest = Request & {
   user?: AuthenticatedUser;
 };
 
+function sessionToken(request: Request): string | undefined {
+  const cookieHeader = request.headers.cookie;
+  if (!cookieHeader) return undefined;
+
+  return cookieHeader
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith('icr_session='))
+    ?.slice('icr_session='.length);
+}
+
 function isStringArray(value: unknown): value is string[] {
   return (
     Array.isArray(value) &&
@@ -60,12 +71,9 @@ export class JwtAuthGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const authorization = request.headers.authorization;
-
-    if (!authorization?.startsWith('Bearer ')) {
-      throw new UnauthorizedException('Bearer access token required');
-    }
-
-    const token = authorization.slice('Bearer '.length).trim();
+    const token = authorization?.startsWith('Bearer ')
+      ? authorization.slice('Bearer '.length).trim()
+      : sessionToken(request);
 
     if (!token) {
       throw new UnauthorizedException('Bearer access token required');

@@ -1,3 +1,4 @@
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,6 +8,23 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+  OTHER
+}
+
+// ============================================================
+// ORGANIZATION & LEGAL ENTITIES
+// ============================================================
+
 model Organization {
   id        String   @id @default(uuid()) @db.Uuid
   code      String   @unique @db.VarChar(50)
@@ -15,9 +33,12 @@ model Organization {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  legalEntities LegalEntity[]
-  userAccesses  UserOrganizationAccess[]
-  userRoles     UserRole[]
+  legalEntities              LegalEntity[]
+  userAccesses               UserOrganizationAccess[]
+  userRoles                  UserRole[]
+  counterparties             Counterparty[]
+  accounts                   Account[]
+  intercompanyRelationships  IntercompanyRelationship[]
 
   @@map("organizations")
 }
@@ -32,55 +53,72 @@ model LegalEntity {
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  organization Organization @relation(
+    fields: [organizationId],
+    references: [id],
+    onDelete: Restrict
+  )
 
+  counterparties Counterparty[]
+  accounts      Account[]
+
+  outgoingIntercompanyRelations IntercompanyRelationship[] @relation("SourceLegalEntity")
+  incomingIntercompanyRelations IntercompanyRelationship[] @relation("TargetLegalEntity")
+
+  // Composite key enables organization-scoped foreign keys.
   @@unique([organizationId, code])
+  @@unique([organizationId, id])
   @@index([organizationId])
   @@map("legal_entities")
 }
 
-model User {
-  id                  String    @id @default(uuid()) @db.Uuid
-  email               String    @unique @db.VarChar(320)
-  passwordHash        String    @map("password_hash") @db.VarChar(255)
-  firstName           String    @map("first_name") @db.VarChar(100)
-  lastName            String?   @map("last_name") @db.VarChar(100)
-  isActive            Boolean   @default(true) @map("is_active")
-  failedLoginAttempts Int       @default(0) @map("failed_login_attempts")
-  lockedUntil         DateTime? @map("locked_until") @db.Timestamptz(6)
-  lastLoginAt         DateTime? @map("last_login_at") @db.Timestamptz(6)
-  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+// ============================================================
+// AUTHENTICATION & USER MANAGEMENT
+// ============================================================
 
-  roles                UserRole[]
+model User {
+  id                   String    @id @default(uuid()) @db.Uuid
+  email                String    @unique @db.VarChar(254)
+  passwordHash         String    @map("password_hash") @db.VarChar(255)
+  firstName            String?   @map("first_name") @db.VarChar(100)
+  lastName             String?   @map("last_name") @db.VarChar(100)
+  isActive             Boolean   @default(true) @map("is_active")
+  failedLoginAttempts  Int       @default(0) @map("failed_login_attempts")
+  lockedUntil          DateTime? @map("locked_until") @db.Timestamptz(6)
+  lastLoginAt          DateTime? @map("last_login_at") @db.Timestamptz(6)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  userRoles      UserRole[]
   organizationAccesses UserOrganizationAccess[]
 
+  @@index([isActive])
   @@map("users")
 }
 
 model Role {
-  id           String   @id @default(uuid()) @db.Uuid
-  code         String   @unique @db.VarChar(50)
-  name         String   @db.VarChar(100)
-  description  String?  @db.VarChar(500)
-  isSystemRole Boolean  @default(false) @map("is_system_role")
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique @db.VarChar(80)
+  name        String   @db.VarChar(120)
+  description String?  @db.VarChar(500)
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  users       UserRole[]
-  permissions RolePermission[]
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
 
   @@map("roles")
 }
 
 model Permission {
   id          String   @id @default(uuid()) @db.Uuid
-  code        String   @unique @db.VarChar(100)
+  code        String   @unique @db.VarChar(120)
   name        String   @db.VarChar(150)
   description String?  @db.VarChar(500)
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  roles RolePermission[]
+  rolePermissions RolePermission[]
 
   @@map("permissions")
 }
@@ -92,9 +130,23 @@ model UserRole {
   organizationId String?  @map("organization_id") @db.Uuid
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role         Role          @relation(fields: [roleId], references: [id], onDelete: Restrict)
-  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user User @relation(
+    fields: [userId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  role Role @relation(
+    fields: [roleId],
+    references: [id],
+    onDelete: Restrict
+  )
+
+  organization Organization? @relation(
+    fields: [organizationId],
+    references: [id],
+    onDelete: Restrict
+  )
 
   @@unique([userId, roleId, organizationId])
   @@index([userId])
@@ -109,8 +161,17 @@ model RolePermission {
   permissionId String   @map("permission_id") @db.Uuid
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Restrict)
+  role Role @relation(
+    fields: [roleId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  permission Permission @relation(
+    fields: [permissionId],
+    references: [id],
+    onDelete: Cascade
+  )
 
   @@unique([roleId, permissionId])
   @@index([permissionId])
@@ -121,13 +182,133 @@ model UserOrganizationAccess {
   id             String   @id @default(uuid()) @db.Uuid
   userId         String   @map("user_id") @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
-  grantedAt      DateTime @default(now()) @map("granted_at") @db.Timestamptz(6)
-  grantedBy      String?  @map("granted_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user User @relation(
+    fields: [userId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  organization Organization @relation(
+    fields: [organizationId],
+    references: [id],
+    onDelete: Cascade
+  )
 
   @@unique([userId, organizationId])
   @@index([organizationId])
   @@map("user_organization_access")
+}
+
+// ============================================================
+// MASTER DATA: COUNTERPARTIES
+// ============================================================
+
+model Counterparty {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  legalEntityId  String   @map("legal_entity_id") @db.Uuid
+  code           String   @db.VarChar(50)
+  name           String   @db.VarChar(200)
+  countryCode    String?  @map("country_code") @db.Char(2)
+  currencyCode   String?  @map("currency_code") @db.Char(3)
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(
+    fields: [organizationId],
+    references: [id],
+    onDelete: Restrict
+  )
+
+  legalEntity LegalEntity @relation(
+    fields: [organizationId, legalEntityId],
+    references: [organizationId, id],
+    onDelete: Restrict
+  )
+
+  @@unique([legalEntityId, code])
+  @@index([organizationId, isActive])
+  @@index([organizationId, legalEntityId])
+  @@map("counterparties")
+}
+
+// ============================================================
+// MASTER DATA: ACCOUNTS
+// ============================================================
+
+model Account {
+  id             String      @id @default(uuid()) @db.Uuid
+  organizationId String      @map("organization_id") @db.Uuid
+  legalEntityId  String      @map("legal_entity_id") @db.Uuid
+  code           String      @db.VarChar(50)
+  name           String      @db.VarChar(200)
+  accountType    AccountType @map("account_type")
+  currencyCode   String?     @map("currency_code") @db.Char(3)
+  isActive       Boolean     @default(true) @map("is_active")
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(
+    fields: [organizationId],
+    references: [id],
+    onDelete: Restrict
+  )
+
+  legalEntity LegalEntity @relation(
+    fields: [organizationId, legalEntityId],
+    references: [organizationId, id],
+    onDelete: Restrict
+  )
+
+  @@unique([legalEntityId, code])
+  @@index([organizationId, isActive])
+  @@index([organizationId, legalEntityId])
+  @@index([organizationId, accountType])
+  @@map("accounts")
+}
+
+// ============================================================
+// MASTER DATA: INTERCOMPANY RELATIONSHIPS
+// ============================================================
+
+model IntercompanyRelationship {
+  id                  String    @id @default(uuid()) @db.Uuid
+  organizationId      String    @map("organization_id") @db.Uuid
+  sourceLegalEntityId String    @map("source_legal_entity_id") @db.Uuid
+  targetLegalEntityId String    @map("target_legal_entity_id") @db.Uuid
+  name                String    @db.VarChar(200)
+  isActive            Boolean   @default(true) @map("is_active")
+  effectiveFrom       DateTime  @default(now()) @map("effective_from") @db.Timestamptz(6)
+  effectiveTo         DateTime? @map("effective_to") @db.Timestamptz(6)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(
+    fields: [organizationId],
+    references: [id],
+    onDelete: Restrict
+  )
+
+  sourceLegalEntity LegalEntity @relation(
+    "SourceLegalEntity",
+    fields: [organizationId, sourceLegalEntityId],
+    references: [organizationId, id],
+    onDelete: Restrict
+  )
+
+  targetLegalEntity LegalEntity @relation(
+    "TargetLegalEntity",
+    fields: [organizationId, targetLegalEntityId],
+    references: [organizationId, id],
+    onDelete: Restrict
+  )
+
+  @@unique([organizationId, sourceLegalEntityId, targetLegalEntityId])
+  @@index([organizationId, isActive])
+  @@index([sourceLegalEntityId])
+  @@index([targetLegalEntityId])
+  @@map("intercompany_relationships")
 }

@@ -21,6 +21,60 @@ enum AccountType {
   OTHER
 }
 
+enum ImportStatus {
+  DRAFT
+  QUEUED
+  PROCESSING
+  COMPLETED
+  COMPLETED_WITH_ERRORS
+  FAILED
+  CANCELLED
+}
+
+enum ImportFileType {
+  CSV
+  XLSX
+}
+
+enum ImportRowStatus {
+  PENDING
+  VALID
+  REJECTED
+  IMPORTED
+}
+
+enum TransactionStatus {
+  PENDING
+  MATCHED
+  UNMATCHED
+  EXCEPTION
+}
+
+enum ReconciliationRunStatus {
+  DRAFT
+  QUEUED
+  PROCESSING
+  COMPLETED
+  COMPLETED_WITH_EXCEPTIONS
+  FAILED
+  CANCELLED
+}
+
+enum ExceptionStatus {
+  OPEN
+  ASSIGNED
+  PROPOSED
+  APPROVED
+  RESOLVED
+}
+
+enum ExceptionSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
 // ============================================================
 // ORGANIZATION & LEGAL ENTITIES
 // ============================================================
@@ -39,6 +93,11 @@ model Organization {
   counterparties             Counterparty[]
   accounts                   Account[]
   intercompanyRelationships  IntercompanyRelationship[]
+  sourceSystems              SourceSystem[]
+  importBatches              ImportBatch[]
+  transactions               Transaction[]
+  reconciliationRuns         ReconciliationRun[]
+  reconciliationExceptions   ReconciliationException[]
 
   @@map("organizations")
 }
@@ -57,6 +116,10 @@ model LegalEntity {
 
   counterparties Counterparty[]
   accounts      Account[]
+  importBatches ImportBatch[]
+  transactions  Transaction[]
+  reconciliationRuns ReconciliationRun[]
+  reconciliationExceptions ReconciliationException[]
 
   outgoingIntercompanyRelations IntercompanyRelationship[] @relation("SourceLegalEntity")
   incomingIntercompanyRelations IntercompanyRelationship[] @relation("TargetLegalEntity")
@@ -249,4 +312,200 @@ model IntercompanyRelationship {
   @@index([sourceLegalEntityId])
   @@index([targetLegalEntityId])
   @@map("intercompany_relationships")
+}
+
+// ============================================================
+// SOURCE SYSTEMS & DURABLE IMPORT STAGING
+// ============================================================
+
+model SourceSystem {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  code           String   @db.VarChar(50)
+  name           String   @db.VarChar(200)
+  systemType     String   @map("system_type") @db.VarChar(80)
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  importBatches ImportBatch[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, isActive])
+  @@map("source_systems")
+}
+
+model ImportBatch {
+  id                 String         @id @default(uuid()) @db.Uuid
+  organizationId     String         @map("organization_id") @db.Uuid
+  legalEntityId      String         @map("legal_entity_id") @db.Uuid
+  sourceSystemId     String?        @map("source_system_id") @db.Uuid
+  idempotencyKey     String         @map("idempotency_key") @db.VarChar(100)
+  originalFilename   String         @map("original_filename") @db.VarChar(255)
+  storageKey         String         @map("storage_key") @db.VarChar(500)
+  contentHash        String         @map("content_hash") @db.Char(64)
+  fileType           ImportFileType @map("file_type")
+  status             ImportStatus   @default(DRAFT)
+  columnMapping      Json?          @map("column_mapping")
+  totalRows          Int            @default(0) @map("total_rows")
+  validRows          Int            @default(0) @map("valid_rows")
+  rejectedRows       Int            @default(0) @map("rejected_rows")
+  importedRows       Int            @default(0) @map("imported_rows")
+  failureReason      String?        @map("failure_reason") @db.VarChar(1000)
+  createdByUserId    String?        @map("created_by_user_id") @db.Uuid
+  queuedAt           DateTime?      @map("queued_at") @db.Timestamptz(6)
+  startedAt          DateTime?      @map("started_at") @db.Timestamptz(6)
+  completedAt        DateTime?      @map("completed_at") @db.Timestamptz(6)
+  createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  legalEntity  LegalEntity   @relation(fields: [organizationId, legalEntityId], references: [organizationId, id], onDelete: Restrict)
+  sourceSystem SourceSystem? @relation(fields: [sourceSystemId], references: [id], onDelete: Restrict)
+  rows         ImportRow[]
+  transactions Transaction[]
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, legalEntityId])
+  @@map("import_batches")
+}
+
+model ImportRow {
+  id             String          @id @default(uuid()) @db.Uuid
+  importBatchId  String          @map("import_batch_id") @db.Uuid
+  rowNumber      Int             @map("row_number")
+  status         ImportRowStatus @default(PENDING)
+  rawData        Json            @map("raw_data")
+  normalizedData Json?           @map("normalized_data")
+  errors         Json?           @map("errors")
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  importBatch ImportBatch @relation(fields: [importBatchId], references: [id], onDelete: Restrict)
+
+  @@unique([importBatchId, rowNumber])
+  @@index([importBatchId, status])
+  @@map("import_rows")
+}
+
+// ============================================================
+// NORMALIZED FINANCIAL RECORDS & RECONCILIATION RUNS
+// ============================================================
+
+model Transaction {
+  id                 String            @id @default(uuid()) @db.Uuid
+  organizationId     String            @map("organization_id") @db.Uuid
+  legalEntityId      String            @map("legal_entity_id") @db.Uuid
+  importBatchId      String?           @map("import_batch_id") @db.Uuid
+  sourceRecordKey    String            @map("source_record_key") @db.VarChar(200)
+  documentReference  String?           @map("document_reference") @db.VarChar(200)
+  transactionDate    DateTime          @map("transaction_date") @db.Date
+  amount             Decimal           @db.Decimal(20, 6)
+  currencyCode       String            @map("currency_code") @db.Char(3)
+  status             TransactionStatus @default(PENDING)
+  sourcePayload      Json              @map("source_payload")
+  createdAt          DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  legalEntity  LegalEntity  @relation(fields: [organizationId, legalEntityId], references: [organizationId, id], onDelete: Restrict)
+  importBatch  ImportBatch? @relation(fields: [importBatchId], references: [id], onDelete: Restrict)
+  matchItems   ReconciliationMatchItem[]
+  exceptions   ReconciliationException[]
+
+  @@unique([organizationId, sourceRecordKey])
+  @@index([organizationId, legalEntityId, transactionDate])
+  @@index([organizationId, status])
+  @@index([organizationId, documentReference])
+  @@map("transactions")
+}
+
+model ReconciliationRun {
+  id                  String                  @id @default(uuid()) @db.Uuid
+  organizationId      String                  @map("organization_id") @db.Uuid
+  legalEntityId       String                  @map("legal_entity_id") @db.Uuid
+  name                String                  @db.VarChar(200)
+  periodStart         DateTime                @map("period_start") @db.Date
+  periodEnd           DateTime                @map("period_end") @db.Date
+  status              ReconciliationRunStatus @default(DRAFT)
+  rulesVersion        String                  @map("rules_version") @db.VarChar(50)
+  inputFingerprint    String?                 @map("input_fingerprint") @db.Char(64)
+  processedCount      Int                     @default(0) @map("processed_count")
+  matchedCount        Int                     @default(0) @map("matched_count")
+  unmatchedCount      Int                     @default(0) @map("unmatched_count")
+  failureReason       String?                 @map("failure_reason") @db.VarChar(1000)
+  queuedAt            DateTime?               @map("queued_at") @db.Timestamptz(6)
+  startedAt           DateTime?               @map("started_at") @db.Timestamptz(6)
+  completedAt         DateTime?               @map("completed_at") @db.Timestamptz(6)
+  createdAt           DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  legalEntity  LegalEntity  @relation(fields: [organizationId, legalEntityId], references: [organizationId, id], onDelete: Restrict)
+  matches      ReconciliationMatch[]
+  exceptions   ReconciliationException[]
+
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, legalEntityId, periodStart, periodEnd])
+  @@map("reconciliation_runs")
+}
+
+model ReconciliationMatch {
+  id                    String   @id @default(uuid()) @db.Uuid
+  reconciliationRunId   String   @map("reconciliation_run_id") @db.Uuid
+  ruleCode              String   @map("rule_code") @db.VarChar(80)
+  currencyCode          String   @map("currency_code") @db.Char(3)
+  varianceAmount        Decimal  @default(0) @map("variance_amount") @db.Decimal(20, 6)
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  reconciliationRun ReconciliationRun       @relation(fields: [reconciliationRunId], references: [id], onDelete: Restrict)
+  items             ReconciliationMatchItem[]
+
+  @@index([reconciliationRunId])
+  @@map("reconciliation_matches")
+}
+
+model ReconciliationMatchItem {
+  id                    String   @id @default(uuid()) @db.Uuid
+  reconciliationMatchId String   @map("reconciliation_match_id") @db.Uuid
+  transactionId         String   @map("transaction_id") @db.Uuid
+  side                  String   @db.VarChar(10)
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  reconciliationMatch ReconciliationMatch @relation(fields: [reconciliationMatchId], references: [id], onDelete: Restrict)
+  transaction         Transaction         @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+
+  @@unique([reconciliationMatchId, transactionId])
+  @@index([transactionId])
+  @@map("reconciliation_match_items")
+}
+
+model ReconciliationException {
+  id                  String            @id @default(uuid()) @db.Uuid
+  organizationId      String            @map("organization_id") @db.Uuid
+  legalEntityId       String            @map("legal_entity_id") @db.Uuid
+  reconciliationRunId String            @map("reconciliation_run_id") @db.Uuid
+  transactionId       String?           @map("transaction_id") @db.Uuid
+  exceptionType       String            @map("exception_type") @db.VarChar(80)
+  severity            ExceptionSeverity @default(MEDIUM)
+  status              ExceptionStatus   @default(OPEN)
+  currencyCode        String?           @map("currency_code") @db.Char(3)
+  exposureAmount      Decimal?          @map("exposure_amount") @db.Decimal(20, 6)
+  description         String            @db.VarChar(1000)
+  assignedToUserId    String?           @map("assigned_to_user_id") @db.Uuid
+  dueAt               DateTime?         @map("due_at") @db.Timestamptz(6)
+  resolvedAt          DateTime?         @map("resolved_at") @db.Timestamptz(6)
+  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization       Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  legalEntity        LegalEntity        @relation(fields: [organizationId, legalEntityId], references: [organizationId, id], onDelete: Restrict)
+  reconciliationRun ReconciliationRun  @relation(fields: [reconciliationRunId], references: [id], onDelete: Restrict)
+  transaction        Transaction?       @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, status, severity])
+  @@index([reconciliationRunId])
+  @@map("reconciliation_exceptions")
 }

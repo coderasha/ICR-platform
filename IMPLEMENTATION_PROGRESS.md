@@ -86,4 +86,130 @@
 
 ### Next slice
 
-- Add edit/deactivation actions to the master-data UI, then begin the additive source-import and transaction persistence schema. Financial data, reconciliation runs and reporting are not yet implemented.
+- Add edit actions to the master-data UI, then begin the additive source-import and transaction persistence schema. Financial data, reconciliation runs and reporting are not yet implemented.
+
+## 2026-09-29 — Phase 2 activation controls
+
+- Added in-table **Deactivate/Reactivate** controls for counterparties, accounts and intercompany relationships. These call the existing organization-scoped PATCH API and use a disabled in-flight state to prevent repeat submission.
+- The UI updates the persisted activation result only after the API confirms it; failed updates retain the prior visible state.
+- `pnpm --filter web lint` and `pnpm --filter web exec tsc --noEmit`: **passed**.
+
+## 2026-09-29 — Phase 3 ingestion persistence foundation
+
+### Delivered
+
+- Added additive migration `20260929193000_add_import_staging`; no table, record, or column is removed or rewritten.
+- Added organization-scoped source-system records and durable import batches. An import batch records a generated storage key, SHA-256 content hash, original filename, source/legal-entity context, file type, column mapping, lifecycle state, row counts and bounded failure reason.
+- Added row-level import staging, preserving raw input, normalized result and validation errors without treating upload success as an import result.
+- Added a per-organization idempotency constraint so a retry cannot silently create duplicate import batches.
+- Added indexes for the intended organization/status/history queries and organization-scoped composite legal-entity foreign-key integrity.
+
+### Verification (actual results)
+
+- `pnpm prisma validate`: **passed**.
+- `pnpm prisma generate`: **passed**.
+- `pnpm --filter api build`: **passed**.
+- `pnpm --filter worker typecheck`: **passed**.
+
+### Next slice
+
+- Implement authorized source-system and import-batch APIs, secure object storage adapter, then queue bounded CSV processing in the worker. XLSX is deliberately not claimed until a compatible parser and validation path are implemented.
+
+## 2026-09-29 — Phase 3 ingestion API
+
+### Delivered
+
+- Added permission-protected source-system and import-batch APIs under the organization route.
+- A draft import batch validates organization, legal entity and source-system ownership; normalizes a client filename; creates an opaque generated storage key; persists the client-provided SHA-256 hash; and enforces a scoped idempotency key.
+- Import batches can be listed with legal-entity/source context and moved only from `DRAFT` or `FAILED` to `QUEUED`. This prevents accidental repeat queueing and preserves a durable lifecycle record before worker processing exists.
+- Added `imports:read` and `imports:manage` to the RBAC seed.
+
+### Verification (actual results)
+
+- `pnpm --filter api build`: **passed**.
+- `pnpm --filter api lint`: **passed**.
+- `pnpm --filter api test`: **5 files, 39 tests passed**.
+- `pnpm prisma validate`: **passed**.
+
+### Next slice
+
+- Add object-storage upload completion checks and a queue producer/worker consumer for CSV. Until those exist, import batch creation is deliberately a staged metadata operation, not a completed import.
+
+## 2026-09-29 — Phase 3 queue contract
+
+### Delivered
+
+- Added BullMQ producer logic after the durable `QUEUED` batch update. Jobs use the batch ID as their queue job ID, bounded retries, exponential backoff and bounded retained history.
+- Queue submission failure rolls the batch to `FAILED` with a durable, operator-actionable reason; it is never left falsely queued.
+- Replaced the worker placeholder with an `icr-imports` BullMQ consumer. It atomically moves a queued batch to `PROCESSING` and records a durable failure when there are no staged rows or no transaction-normalization implementation.
+- This worker behavior is intentionally conservative: it does **not** mark imports complete until secure file retrieval, row validation and transaction persistence are implemented.
+- Added required API/worker workspace dependencies from the existing package store with no network download.
+
+### Verification (actual results)
+
+- `pnpm --filter api build`: **passed**.
+- `pnpm --filter worker typecheck`: **passed**.
+- `pnpm --filter api lint`: **passed**.
+- `pnpm --filter api test`: **5 files, 39 tests passed**.
+
+### Next slice
+
+- Implement an authenticated object-storage adapter and CSV row staging; only then enable a worker transition to a successful import result. Add transaction persistence before implementing reconciliation matching.
+
+## 2026-09-29 — Phase 4 financial persistence foundation
+
+### Delivered
+
+- Added additive migration `20260929194500_add_transactions_and_runs` for normalized transactions and reconciliation-run records.
+- Authoritative transaction amounts are PostgreSQL `DECIMAL(20,6)`; no `number` field is used for financial value.
+- A transaction has organization/legal-entity scope, raw source payload, source-record idempotency, a currency, document reference, date and explicit reconciliation status.
+- A run has a bounded lifecycle, immutable rules-version reference, optional input fingerprint, counters, failure reason and UTC processing timestamps. The database rejects an end date preceding its start date.
+
+### Verification (actual results)
+
+- `pnpm prisma validate`: **passed**.
+- `pnpm prisma generate`: **passed**.
+- `pnpm --filter api build`: **passed**.
+- `pnpm --filter worker typecheck`: **passed**.
+
+### Next slice
+
+- Implement CSV row validation to produce normalized transaction records, then implement deterministic reconciliation matching over persisted transactions. No reconciliation results are fabricated before that pipeline exists.
+
+## 2026-09-29 — Phase 4 deterministic matching kernel
+
+### Delivered
+
+- Added a pure, deterministic exact-reference matching kernel, deliberately isolated from HTTP and worker concerns.
+- Amounts are parsed from the persisted decimal string into fixed six-decimal `bigint` values; floating-point arithmetic is not used.
+- The first rule matches only normalized document reference, identical currency and exactly opposite signed values. It never reuses a candidate, preventing accidental many-to-one matching.
+
+### Verification (actual results)
+
+- `pnpm --filter api test`: **6 files, 42 tests passed**.
+- `pnpm --filter api build`: **passed**.
+- `pnpm --filter api lint`: **passed**.
+
+### Next slice
+
+- Persist run inputs and match results, then implement controlled tolerance/date strategies with explicit rules versions and exception output. CSV transaction staging remains required before workers can execute this rule over real data.
+
+## 2026-09-29 — Phase 4 match and exception persistence
+
+### Delivered
+
+- Added additive migration `20260929200000_add_matches_and_exceptions`.
+- Every persisted match records its reconciliation run, deterministic rule code, currency, exact decimal variance, and one-or-more linked transaction IDs with a side marker.
+- Added durable exceptions with organization/run scope, optional transaction linkage, currency-aware exposure, severity, state, assignee, due date and resolution timestamp.
+- Added scoped indexes for open/high-severity exception workflows and run result history.
+
+### Verification (actual results)
+
+- `pnpm prisma validate`: **passed**.
+- `pnpm prisma generate`: **passed**.
+- `pnpm --filter api build`: **passed**.
+- `pnpm --filter api test`: **6 files, 42 tests passed**.
+
+### Next slice
+
+- Add reconciliation-run APIs and transactional persistence for the deterministic matching output. CSV transaction staging is still required before real worker execution.

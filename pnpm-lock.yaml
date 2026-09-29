@@ -41,12 +41,18 @@ importers:
       argon2:
         specifier: ^0.45.1
         version: 0.45.1
+      bullmq:
+        specifier: ^5.58.0
+        version: 5.81.5
       class-transformer:
         specifier: ^0.5.1
         version: 0.5.1
       class-validator:
         specifier: ^0.15.1
         version: 0.15.1
+      ioredis:
+        specifier: ^5.7.0
+        version: 5.11.1
       jose:
         specifier: ^6.2.12
         version: 6.2.12
@@ -148,6 +154,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@prisma/client':
+        specifier: 6.19.0
+        version: 6.19.0(prisma@6.19.0(typescript@6.0.3))(typescript@6.0.3)
       bullmq:
         specifier: ^5.58.0
         version: 5.81.5

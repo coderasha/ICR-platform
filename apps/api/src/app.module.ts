@@ -6,6 +6,8 @@ import { PrismaModule } from './prisma/prisma.module.js';
 import { OrganizationsModule } from './organizations/organizations.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { MasterDataModule } from './master-data/master-data.module.js';
+import { ImportsModule } from './imports/imports.module.js';
+import { ReconciliationModule } from './reconciliation/reconciliation.module.js';
 
 @Module({
     imports: [
@@ -17,6 +19,8 @@ import { MasterDataModule } from './master-data/master-data.module.js';
     AuthModule,
     OrganizationsModule,
     MasterDataModule,
+    ImportsModule,
+    ReconciliationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

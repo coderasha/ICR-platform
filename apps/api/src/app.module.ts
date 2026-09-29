@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { MasterDataModule } from './master-data/master-data.module.js';
 import { ImportsModule } from './imports/imports.module.js';
 import { ReconciliationModule } from './reconciliation/reconciliation.module.js';
+import { HealthModule } from './health/health.module.js';
 
 @Module({
     imports: [
@@ -21,6 +22,7 @@ import { ReconciliationModule } from './reconciliation/reconciliation.module.js'
     MasterDataModule,
     ImportsModule,
     ReconciliationModule,
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [AppService],

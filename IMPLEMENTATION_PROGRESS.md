@@ -213,3 +213,43 @@
 ### Next slice
 
 - Add reconciliation-run APIs and transactional persistence for the deterministic matching output. CSV transaction staging is still required before real worker execution.
+
+## 2026-09-29 — Phase 4 reconciliation-run API
+
+### Delivered
+
+- Added organization-scoped `GET` and `POST /api/v1/organizations/:organizationId/reconciliation-runs` endpoints.
+- Run creation validates organization access and active legal-entity ownership, rejects invalid reporting periods, and persists a supplied matching `rulesVersion` alongside a new `DRAFT` run.
+- Run listing returns the legal-entity context and persisted match/exception counts without leaking another organization’s records.
+
+### Verification (actual results)
+
+- `pnpm --filter api build`: **passed**.
+- `pnpm --filter api lint`: **passed**.
+- `pnpm --filter api test`: **6 files, 42 tests passed**.
+
+### Next slice
+
+- Add run queue/execution persistence only after real transactions are staged. This prevents draft runs from presenting fabricated match results.
+
+## 2026-09-29 — Quality gate repair
+
+- Replaced the worker’s no-test failure with a focused lifecycle test for its durable `QUEUED`-only claim guard and wired that guard into the actual BullMQ worker.
+- `pnpm test` now completes successfully across the workspace: **API 42 tests passed; worker 1 test passed**.
+- `pnpm --filter worker typecheck`: **passed**.
+
+## 2026-09-29 — Operational readiness endpoints
+
+- Added `GET /api/v1/health` for liveness and `GET /api/v1/ready` for database-backed readiness.
+- Readiness does a minimal database probe and returns a generic 503 on failure, without infrastructure host, credential, or driver-error disclosure.
+- Added healthy/unavailable unit coverage.
+- `pnpm test`: **passed** across the workspace (**API 44 tests; worker 1 test**).
+- `pnpm --filter api build` and `pnpm --filter api lint`: **passed**.
+
+## 2026-09-29 — Browser-session CSRF hardening
+
+- Cookie-authenticated `POST`, `PATCH`, `PUT`, and `DELETE` requests now require the configured `WEB_ORIGIN`. This protects the browser session path from cross-origin state changes.
+- Bearer-token clients remain supported and do not require a browser `Origin` header.
+- Added negative cross-origin and positive Bearer compatibility coverage.
+- `pnpm test`: **passed** across the workspace (**API 46 tests; worker 1 test**).
+- `pnpm --filter api build` and `pnpm --filter api lint`: **passed**.

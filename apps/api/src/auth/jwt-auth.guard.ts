@@ -2,6 +2,7 @@
 import {
   CanActivate,
   ExecutionContext,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -71,12 +72,22 @@ export class JwtAuthGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const authorization = request.headers.authorization;
-    const token = authorization?.startsWith('Bearer ')
-      ? authorization.slice('Bearer '.length).trim()
+    const hasBearerToken = authorization?.startsWith('Bearer ') ?? false;
+    const token = hasBearerToken
+      ? authorization!.slice('Bearer '.length).trim()
       : sessionToken(request);
 
     if (!token) {
       throw new UnauthorizedException('Bearer access token required');
+    }
+
+    // Browser sessions are cookie-authenticated. Require the configured origin for
+    // state changes; programmatic Bearer clients are intentionally unaffected.
+    if (!hasBearerToken && ['POST', 'PATCH', 'PUT', 'DELETE'].includes(request.method)) {
+      const expectedOrigin = process.env.WEB_ORIGIN ?? 'http://localhost:3000';
+      if (request.headers.origin !== expectedOrigin) {
+        throw new ForbiddenException('Invalid request origin');
+      }
     }
 
     const secret = this.configService.get<string>('JWT_ACCESS_SECRET');

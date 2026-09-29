@@ -68,10 +68,14 @@ const reconciliationWorker = new Worker<ReconciliationJob>('icr-reconciliation',
       const matchedIds = outcome.matches.flatMap((match) => [match.leftId, match.rightId]);
       if (matchedIds.length) await transaction.transaction.updateMany({ where: { id: { in: matchedIds }, status: TransactionStatus.PENDING }, data: { status: TransactionStatus.MATCHED } });
       if (unmatched.length) await transaction.transaction.updateMany({ where: { id: { in: unmatched }, status: TransactionStatus.PENDING }, data: { status: TransactionStatus.EXCEPTION } });
-      await transaction.reconciliationRun.update({ where: { id: run.id }, data: { status: unmatched.length ? ReconciliationRunStatus.COMPLETED_WITH_EXCEPTIONS : ReconciliationRunStatus.COMPLETED, inputFingerprint: fingerprint, processedCount: all.length, matchedCount: outcome.matches.length, unmatchedCount: unmatched.length, completedAt: new Date() } });
+      const finalStatus = unmatched.length ? ReconciliationRunStatus.COMPLETED_WITH_EXCEPTIONS : ReconciliationRunStatus.COMPLETED;
+      await transaction.reconciliationRun.update({ where: { id: run.id }, data: { status: finalStatus, inputFingerprint: fingerprint, processedCount: all.length, matchedCount: outcome.matches.length, unmatchedCount: unmatched.length, completedAt: new Date() } });
+      await transaction.auditEvent.create({ data: { organizationId: run.organizationId, action: 'RECONCILIATION_RUN_COMPLETED', entityType: 'ReconciliationRun', entityId: run.id, before: { status: ReconciliationRunStatus.PROCESSING }, after: { status: finalStatus, processedCount: all.length, matchedCount: outcome.matches.length, unmatchedCount: unmatched.length, inputFingerprint: fingerprint }, metadata: { worker: 'icr-reconciliation', rulesVersion: 'exact-reference-v1' } } });
     }, { isolationLevel: 'Serializable' });
   } catch (error) {
-    await prisma.reconciliationRun.update({ where: { id: run.id }, data: { status: ReconciliationRunStatus.FAILED, completedAt: new Date(), failureReason: error instanceof Error ? `Reconciliation execution failed: ${error.message}`.slice(0, 1000) : 'Reconciliation execution failed' } });
+    const failureReason = error instanceof Error ? `Reconciliation execution failed: ${error.message}`.slice(0, 1000) : 'Reconciliation execution failed';
+    await prisma.reconciliationRun.update({ where: { id: run.id }, data: { status: ReconciliationRunStatus.FAILED, completedAt: new Date(), failureReason } });
+    await prisma.auditEvent.create({ data: { organizationId: run.organizationId, action: 'RECONCILIATION_RUN_FAILED', entityType: 'ReconciliationRun', entityId: run.id, before: { status: ReconciliationRunStatus.PROCESSING }, after: { status: ReconciliationRunStatus.FAILED }, metadata: { worker: 'icr-reconciliation', failureReason } } });
   }
 }, { connection, concurrency: 1 });
 

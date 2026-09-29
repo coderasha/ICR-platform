@@ -238,6 +238,57 @@
 - `pnpm test` now completes successfully across the workspace: **API 42 tests passed; worker 1 test passed**.
 - `pnpm --filter worker typecheck`: **passed**.
 
+## 2026-09-29 — Executable two-sided reconciliation
+
+### Delivered
+
+- Added the nullable, additive `counterpart_legal_entity_id` field and composite tenant-scoped foreign key in migration `20260929203000_add_run_counterpart_entity`. Existing historical draft runs remain readable; new runs created through the application require both active legal entities.
+- Reconciliation run creation now validates both entities belong to the selected organization, are active, and are distinct. Run history returns both entity contexts.
+- Added `POST /api/v1/organizations/:organizationId/reconciliation-runs/:id/queue`. Only `DRAFT` or `FAILED` two-sided runs can be queued; failed queue submission is durably recorded as `FAILED` rather than leaving a misleading state.
+- The worker now consumes an independent `icr-reconciliation` queue. It claims only durable `QUEUED` runs and executes the exact-reference, same-currency, opposite-decimal rule inside a PostgreSQL serializable transaction.
+- Execution writes auditable match records and primary/counterpart match items, creates `MISSING_COUNTERPART` exceptions for every unmatched transaction, updates transaction statuses, stores an input fingerprint and records accurate run counters/final status. Decimal comparisons use fixed six-place `bigint` values—never JavaScript floating point.
+- Updated `/reconciliation` to require primary and counterpart legal-entity selection, show both entities in history, and provide a queue action only for executable draft/failed runs.
+
+### Verification (actual results)
+
+- `pnpm prisma validate` and `pnpm prisma generate`: **passed**.
+- `pnpm --filter api test`: **10 files, 50 tests passed**.
+- `pnpm --filter worker test`: **3 files, 5 tests passed** (including fixed-decimal/no-reuse reconciliation behavior).
+- API build/lint, worker typecheck/lint, and web lint/direct TypeScript validation: **passed**.
+
+### Current constraints before production release
+
+- The execution worker currently supports the shipped `exact-reference-v1` strategy only. Tolerance/date-window/many-to-many rules need explicit versioned implementations and test vectors before being enabled.
+- Imported transactions are deliberately terminally marked `MATCHED` or `EXCEPTION`; reversing/re-running financial outcomes needs an explicit controlled remediation workflow rather than mutating history.
+- Object storage is still a local development adapter, and end-to-end worker/database/Redis tests, audit events, approval/assignment UI, exports, monitoring/alerting and deployment infrastructure remain release work.
+
+## 2026-09-29 — Audit evidence foundation
+
+### Delivered
+
+- Added additive migration `20260929204500_add_audit_events` and an append-only, organization-scoped `AuditEvent` model. It captures actor (when a user initiates an action), action, entity identity, before/after JSON evidence, bounded metadata and timestamp; application code exposes no update or delete operation for audit records.
+- Added a permission-protected `GET /api/v1/organizations/:organizationId/audit-events` endpoint. It applies the same tenant non-enumeration rules as other organization resources, returns the newest 200 records and includes actor display context.
+- Reconciliation run creation and queueing record actor-attributed evidence. Exception assignment/status changes record their prior and resulting state. The worker records completed and failed reconciliation outcomes within/alongside its durable run handling, including counters, deterministic fingerprint and rule version.
+- `audit:read` was already present in the idempotent RBAC seed and is granted to platform/org administrators and the auditor role.
+
+### Verification (actual results)
+
+- `pnpm prisma validate` and `pnpm prisma generate`: **passed**.
+- API tests/build/lint: **50 tests passed; build and lint passed**.
+- Worker tests/typecheck/lint: **5 tests passed; typecheck and lint passed**.
+- Web lint/direct TypeScript validation and root `pnpm test`: **passed**.
+
+### Remaining audit work
+
+- Audit coverage is currently focused on reconciliation and exception operations. Import, master-data, role-management and authentication events should be added before a regulated production release.
+- The first audit reader is an authorized API; a dedicated filterable audit UI and retained/exportable compliance archive remain future work.
+
+## 2026-09-29 — Audit workspace
+
+- Added `/audit`, a permission-aware audit-history workspace linked from the dashboard navigation. It loads only authorized organizations, handles expired sessions, communicates access denial separately from empty history, and presents the latest event timestamp, action, actor/system-worker identity, entity and before/after evidence.
+- The page calls the organization-scoped audit endpoint with the HttpOnly cookie session; it persists neither event data nor credentials in browser storage.
+- Web lint and direct TypeScript validation, API tests/build, and worker typecheck/tests: **passed**.
+
 ## 2026-09-29 — Operational readiness endpoints
 
 - Added `GET /api/v1/health` for liveness and `GET /api/v1/ready` for database-backed readiness.

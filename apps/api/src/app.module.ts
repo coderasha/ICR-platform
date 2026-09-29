@@ -12,6 +12,7 @@ import { HealthModule } from './health/health.module.js';
 import { StorageModule } from './storage/storage.module.js';
 import { ExceptionsModule } from './exceptions/exceptions.module.js';
 import { TransactionsModule } from './transactions/transactions.module.js';
+import { AuditModule } from './audit/audit.module.js';
 
 @Module({
     imports: [
@@ -29,6 +30,7 @@ import { TransactionsModule } from './transactions/transactions.module.js';
     StorageModule,
     ExceptionsModule,
     TransactionsModule,
+    AuditModule,
   ],
   controllers: [AppController],
   providers: [AppService],

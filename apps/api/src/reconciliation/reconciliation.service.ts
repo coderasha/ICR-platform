@@ -5,12 +5,13 @@ import { CreateReconciliationRunDto } from './dto/create-reconciliation-run.dto.
 import { ReconciliationRunStatus } from '@prisma/client';
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
+import { AuditService } from '../audit/audit.service.js';
 
 @Injectable()
 export class ReconciliationService {
   private readonly connection = new Redis(process.env.REDIS_URL ?? 'redis://:replace_with_a_different_strong_local_password@127.0.0.1:6379', { maxRetriesPerRequest: null, lazyConnect: true });
   private readonly queue = new Queue('icr-reconciliation', { connection: this.connection });
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit?: AuditService) {}
   private async scope(organizationId: string, user: AuthenticatedUser) {
     const platform = user.roles.some((role) => role.code === 'PLATFORM_ADMIN' && role.organizationId === null);
     if (!platform && !user.organizationIds.includes(organizationId)) throw new NotFoundException('Organization not found');
@@ -18,7 +19,7 @@ export class ReconciliationService {
   }
   async list(organizationId: string, user: AuthenticatedUser) {
     await this.scope(organizationId, user);
-    return this.prisma.reconciliationRun.findMany({ where: { organizationId }, include: { legalEntity: { select: { code: true, name: true } }, _count: { select: { matches: true, exceptions: true } } }, orderBy: { createdAt: 'desc' } });
+    return this.prisma.reconciliationRun.findMany({ where: { organizationId }, include: { legalEntity: { select: { code: true, name: true } }, counterpartLegalEntity: { select: { code: true, name: true } }, _count: { select: { matches: true, exceptions: true } } }, orderBy: { createdAt: 'desc' } });
   }
   async create(organizationId: string, dto: CreateReconciliationRunDto, user: AuthenticatedUser) {
     await this.scope(organizationId, user);
@@ -28,7 +29,9 @@ export class ReconciliationService {
     const entityIds = dto.counterpartLegalEntityId ? [dto.legalEntityId, dto.counterpartLegalEntityId] : [dto.legalEntityId];
     const entities = await this.prisma.legalEntity.findMany({ where: { id: { in: entityIds }, organizationId, isActive: true }, select: { id: true } });
     if (entities.length !== entityIds.length) throw new BadRequestException('Both legal entities must be active and belong to the selected organization');
-    return this.prisma.reconciliationRun.create({ data: { organizationId, legalEntityId: dto.legalEntityId, counterpartLegalEntityId: dto.counterpartLegalEntityId, name: dto.name.trim(), periodStart: start, periodEnd: end, rulesVersion: dto.rulesVersion.trim() } });
+    const run = await this.prisma.reconciliationRun.create({ data: { organizationId, legalEntityId: dto.legalEntityId, counterpartLegalEntityId: dto.counterpartLegalEntityId, name: dto.name.trim(), periodStart: start, periodEnd: end, rulesVersion: dto.rulesVersion.trim() } });
+    await this.audit?.record({ organizationId, actorUserId: user.id, action: 'RECONCILIATION_RUN_CREATED', entityType: 'ReconciliationRun', entityId: run.id, after: { status: run.status, legalEntityId: run.legalEntityId, counterpartLegalEntityId: run.counterpartLegalEntityId, periodStart: run.periodStart.toISOString(), periodEnd: run.periodEnd.toISOString(), rulesVersion: run.rulesVersion } });
+    return run;
   }
   async queueRun(organizationId: string, id: string, user: AuthenticatedUser) {
     await this.scope(organizationId, user);
@@ -39,6 +42,7 @@ export class ReconciliationService {
     const queued = await this.prisma.reconciliationRun.update({ where: { id: run.id }, data: { status: ReconciliationRunStatus.QUEUED, queuedAt: new Date(), failureReason: null, startedAt: null, completedAt: null } });
     try {
       await this.queue.add('execute-reconciliation', { runId: run.id, organizationId }, { jobId: run.id, attempts: 3, backoff: { type: 'exponential', delay: 1000 }, removeOnComplete: 1000, removeOnFail: 1000 });
+      await this.audit?.record({ organizationId, actorUserId: user.id, action: 'RECONCILIATION_RUN_QUEUED', entityType: 'ReconciliationRun', entityId: queued.id, before: { status: run.status }, after: { status: queued.status } });
       return queued;
     } catch {
       await this.prisma.reconciliationRun.update({ where: { id: run.id }, data: { status: ReconciliationRunStatus.FAILED, failureReason: 'Queue submission failed; retry when queue connectivity is restored.' } });

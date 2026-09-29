@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 type Organization = { id: string; code: string; name: string; isActive: boolean; _count?: { legalEntities: number } };
 type CurrentUser = { id: string; email: string; permissions: string[] };
 const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3003/api/v1";
-const nav = [["Overview", "▦", "/"], ["Reconciliation", "⌘", "/reconciliation"], ["Transactions", "↔", "/transactions"], ["Exceptions", "!", "/exceptions"], ["Data management", "↥", "/imports"], ["Master data", "◇", "/master-data"]];
+const nav = [["Overview", "▦", "/"], ["Reconciliation", "⌘", "/reconciliation"], ["Transactions", "↔", "/transactions"], ["Exceptions", "!", "/exceptions"], ["Data management", "↥", "/imports"], ["Master data", "◇", "/master-data"], ["Audit history", "◷", "/audit"]];
 
 export default function Home() {
   const router = useRouter();

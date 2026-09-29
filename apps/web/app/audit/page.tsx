@@ -1,0 +1,24 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+
+const api = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3003/api/v1";
+type Organization = { id: string; name: string };
+type Event = { id: string; action: string; entityType: string; entityId: string; createdAt: string; actor: { email: string; firstName?: string | null; lastName?: string | null } | null; before?: Record<string, unknown> | null; after?: Record<string, unknown> | null; metadata?: Record<string, unknown> | null };
+
+function summary(value: Record<string, unknown> | null | undefined) {
+  if (!value) return "—";
+  return Object.entries(value).map(([key, item]) => `${key}: ${String(item)}`).join(" · ");
+}
+
+export default function AuditPage() {
+  const router = useRouter();
+  const [organizations, setOrganizations] = useState<Organization[]>([]); const [organizationId, setOrganizationId] = useState(""); const [events, setEvents] = useState<Event[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState("");
+  const loadOrganizations = useCallback(async () => { try { const me = await fetch(`${api}/auth/me`, { credentials: "include" }); if (me.status === 401) { router.push("/login"); return; } const response = await fetch(`${api}/organizations`, { credentials: "include" }); if (!response.ok) throw new Error("Unable to load authorized organizations."); const data = await response.json() as Organization[]; setOrganizations(data); setOrganizationId((current) => current || data[0]?.id || ""); } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load audit workspace."); } }, [router]);
+  const loadEvents = useCallback(async () => { if (!organizationId) { setEvents([]); setLoading(false); return; } setLoading(true); setError(""); try { const response = await fetch(`${api}/organizations/${organizationId}/audit-events`, { credentials: "include" }); if (response.status === 403) throw new Error("Your account does not have permission to view audit history."); if (!response.ok) throw new Error("Unable to load audit history."); setEvents(await response.json() as Event[]); } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load audit history."); } finally { setLoading(false); } }, [organizationId]);
+  useEffect(() => { void Promise.resolve().then(loadOrganizations); }, [loadOrganizations]);
+  useEffect(() => { void Promise.resolve().then(loadEvents); }, [loadEvents]);
+  return <main className="min-h-screen bg-[#f6f7f9] text-[#172033]"><header className="flex h-[73px] items-center justify-between border-b border-[#e4e7ec] bg-white px-5 sm:px-8"><Link href="/" className="font-semibold text-[#10243f]">Ledgerline</Link><Link href="/" className="text-sm font-medium text-[#2467bf]">← Overview</Link></header><div className="mx-auto max-w-6xl px-5 py-8"><p className="text-sm text-[#687386]">Governance</p><h1 className="mt-1 text-2xl font-semibold">Audit history</h1><p className="mt-1 text-sm text-[#687386]">Append-only evidence of workflow activity. The newest 200 events are shown.</p><select aria-label="Organization" value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} className="mt-6 h-10 min-w-64 rounded-md border border-[#dce2ea] bg-white px-3 text-sm"><option value="">Select organization</option>{organizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}</select>{error && <div role="alert" className="mt-4 rounded-md border border-[#f1c3bd] bg-[#fff5f3] px-4 py-3 text-sm text-[#a53b2d]">{error}</div>}<section className="mt-6 overflow-hidden rounded-lg border border-[#e2e6ec] bg-white shadow-sm">{loading ? <p className="p-8 text-sm text-[#687386]">Loading audit events…</p> : events.length === 0 ? <p className="p-10 text-center text-sm text-[#687386]">No audit events have been recorded for this organization yet.</p> : <table className="min-w-full text-left text-sm"><thead className="bg-[#fafbfd] text-xs uppercase text-[#687386]"><tr><th className="px-5 py-3">Time</th><th className="px-5 py-3">Action</th><th className="px-5 py-3">Actor</th><th className="px-5 py-3">Change</th></tr></thead><tbody className="divide-y divide-[#edf0f4]">{events.map((event) => <tr key={event.id}><td className="whitespace-nowrap px-5 py-4 text-xs text-[#687386]">{new Date(event.createdAt).toLocaleString()}</td><td className="px-5 py-4"><p className="font-medium">{event.action.replaceAll("_", " ")}</p><p className="mt-1 text-xs text-[#687386]">{event.entityType} · {event.entityId}</p></td><td className="px-5 py-4 text-[#526176]">{event.actor?.email ?? "System worker"}</td><td className="max-w-xs px-5 py-4 text-xs text-[#526176]"><p>Before: {summary(event.before)}</p><p className="mt-1">After: {summary(event.after)}</p></td></tr>)}</tbody></table>}</section></div></main>;
+}

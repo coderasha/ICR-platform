@@ -1,4 +1,3 @@
-
 import {
   Injectable,
   Logger,
@@ -74,20 +73,18 @@ export class AuthService {
     }
 
     if (!passwordIsValid) {
-      const failedAttempts = user.failedLoginAttempts + 1;
-      const shouldLock = failedAttempts >= MAX_FAILED_LOGIN_ATTEMPTS;
-
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: {
-          failedLoginAttempts: { increment: 1 },
-          ...(shouldLock
-            ? {
-                lockedUntil: new Date(Date.now() + LOCKOUT_DURATION_MS),
-              }
-            : {}),
-        },
-      });
+      await this.prisma.$executeRaw`
+    UPDATE "users"
+    SET
+      "failed_login_attempts" = "failed_login_attempts" + 1,
+      "locked_until" = CASE
+        WHEN "failed_login_attempts" + 1 >= ${MAX_FAILED_LOGIN_ATTEMPTS}
+        THEN NOW() + (${LOCKOUT_DURATION_MS} * INTERVAL '1 millisecond')
+        ELSE "locked_until"
+      END,
+      "updated_at" = NOW()
+    WHERE "id" = ${user.id}::uuid
+  `;
 
       throw new UnauthorizedException('Invalid email or password');
     }

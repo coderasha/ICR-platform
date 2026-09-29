@@ -52,33 +52,35 @@ describe('Organizations and Legal Entities HTTP (e2e)', () => {
     },
   };
 
-  async function createTestToken(
-    permissions: string[],
-  ): Promise<string> {
-    const secret = process.env.JWT_ACCESS_SECRET;
-
-    if (!secret || secret.length < 32) {
-      throw new Error(
-        'JWT_ACCESS_SECRET must be configured for e2e tests',
-      );
-    }
-
-    const now = Math.floor(Date.now() / 1000);
-
-    return new SignJWT({
-      email: 'e2e-test@icr.local',
-      roles: [],
-      organizationIds: [organizationId],
-      permissions,
-    })
-      .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
-      .setSubject('e2e-test-user')
-      .setIssuer('icr-platform-api')
-      .setAudience('icr-platform')
-      .setIssuedAt(now)
-      .setExpirationTime(now + 300)
-      .sign(new TextEncoder().encode(secret));
+  
+async function createTestToken(
+  permissions: string[],
+  roles: Array<{
+    code: string;
+    organizationId: string | null;
+  }> = [],
+): Promise<string> {
+  const secret = process.env.JWT_ACCESS_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new Error('JWT_ACCESS_SECRET must be configured for e2e tests');
   }
+
+  const now = Math.floor(Date.now() / 1000);
+
+  return new SignJWT({
+    email: 'e2e-test@icr.local',
+    roles,
+    organizationIds: [organizationId],
+    permissions,
+  })
+    .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
+    .setSubject('e2e-test-user')
+    .setIssuer('icr-platform-api')
+    .setAudience('icr-platform')
+    .setIssuedAt(now)
+    .setExpirationTime(now + 300)
+    .sign(new TextEncoder().encode(secret));
+}
 
   function duplicateCodeError() {
     return new Prisma.PrismaClientKnownRequestError(
@@ -123,7 +125,10 @@ describe('Organizations and Legal Entities HTTP (e2e)', () => {
     it('creates an organization and returns HTTP 201', async () => {
       prismaMock.organization.create.mockResolvedValue(organization);
 
-      const token = await createTestToken(['organizations:manage']);
+      const token = await createTestToken(
+  ['organizations:manage'],
+  [{ code: 'PLATFORM_ADMIN', organizationId: null }],
+);
 
       const response = await request(app.getHttpServer())
         .post('/api/v1/organizations')
@@ -146,7 +151,10 @@ describe('Organizations and Legal Entities HTTP (e2e)', () => {
     });
 
     it('rejects unexpected request properties with HTTP 400', async () => {
-      const token = await createTestToken(['organizations:manage']);
+      const token = await createTestToken(
+  ['organizations:manage'],
+  [{ code: 'PLATFORM_ADMIN', organizationId: null }],
+);
 
       await request(app.getHttpServer())
         .post('/api/v1/organizations')
@@ -166,7 +174,10 @@ describe('Organizations and Legal Entities HTTP (e2e)', () => {
         duplicateCodeError(),
       );
 
-      const token = await createTestToken(['organizations:manage']);
+      const token = await createTestToken(
+  ['organizations:manage'],
+  [{ code: 'PLATFORM_ADMIN', organizationId: null }],
+);
 
       const response = await request(app.getHttpServer())
         .post('/api/v1/organizations')
@@ -239,7 +250,10 @@ describe('Organizations and Legal Entities HTTP (e2e)', () => {
       prismaMock.organization.findUnique.mockResolvedValue(organization);
       prismaMock.legalEntity.create.mockResolvedValue(legalEntity);
 
-      const token = await createTestToken(['organizations:manage']);
+      const token = await createTestToken(
+  ['organizations:manage'],
+  [{ code: 'PLATFORM_ADMIN', organizationId: null }],
+);
 
       const response = await request(app.getHttpServer())
         .post(`/api/v1/organizations/${organizationId}/legal-entities`)
@@ -265,7 +279,10 @@ describe('Organizations and Legal Entities HTTP (e2e)', () => {
     });
 
     it('rejects an unsupported currency with HTTP 400', async () => {
-      const token = await createTestToken(['organizations:manage']);
+      const token = await createTestToken(
+  ['organizations:manage'],
+  [{ code: 'PLATFORM_ADMIN', organizationId: null }],
+);
 
       await request(app.getHttpServer())
         .post(`/api/v1/organizations/${organizationId}/legal-entities`)
@@ -297,12 +314,7 @@ describe('Organizations and Legal Entities HTTP (e2e)', () => {
         .set('Authorization', `Bearer ${token}`)
         .expect(404);
 
-      expect(prismaMock.legalEntity.findFirst).toHaveBeenCalledWith({
-        where: {
-          id: entityId,
-          organizationId: otherOrganizationId,
-        },
-      });
+      expect(prismaMock.legalEntity.findFirst).not.toHaveBeenCalled();
     });
   });
 });

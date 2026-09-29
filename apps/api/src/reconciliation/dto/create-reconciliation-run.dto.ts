@@ -1,8 +1,10 @@
-import { IsDateString, IsNotEmpty, IsString, IsUUID, MaxLength } from 'class-validator';
+import { IsDateString, IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
 export class CreateReconciliationRunDto {
   @IsUUID()
   legalEntityId!: string;
+  @IsOptional() @IsUUID()
+  counterpartLegalEntityId?: string;
   @IsString() @IsNotEmpty() @MaxLength(200)
   name!: string;
   @IsDateString()

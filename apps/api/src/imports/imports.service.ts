@@ -5,13 +5,14 @@ import { Redis } from 'ioredis';
 import { randomUUID } from 'node:crypto';
 import type { AuthenticatedUser } from '../auth/auth-user.interface.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { CreateImportBatchDto, CreateSourceSystemDto } from './dto/imports.dto.js';
+import { CreateImportBatchDto, CreateSourceSystemDto, UploadImportDto } from './dto/imports.dto.js';
+import { StorageService } from '../storage/storage.service.js';
 
 @Injectable()
 export class ImportsService {
   private readonly connection = new Redis(process.env.REDIS_URL ?? 'redis://:replace_with_a_different_strong_local_password@127.0.0.1:6379', { maxRetriesPerRequest: null, lazyConnect: true });
   private readonly queue = new Queue('icr-imports', { connection: this.connection });
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly storage: StorageService) {}
   private async scope(organizationId: string, user: AuthenticatedUser) {
     const platform = user.roles.some((role) => role.code === 'PLATFORM_ADMIN' && role.organizationId === null);
     if (!platform && !user.organizationIds.includes(organizationId)) throw new NotFoundException('Organization not found');
@@ -32,6 +33,15 @@ export class ImportsService {
     const safeName = dto.originalFilename.replace(/[^A-Za-z0-9._-]/g, '_');
     try { return await this.prisma.importBatch.create({ data: { organizationId, legalEntityId: dto.legalEntityId, sourceSystemId: dto.sourceSystemId, idempotencyKey: dto.idempotencyKey, originalFilename: safeName, storageKey: `imports/${organizationId}/${randomUUID()}`, contentHash: dto.contentHash.toLowerCase(), fileType: dto.fileType, createdByUserId: user.id } }); }
     catch (error) { if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException('An import batch already exists for this idempotency key'); throw error; }
+  }
+  async upload(organizationId: string, dto: UploadImportDto, user: AuthenticatedUser) {
+    await this.scope(organizationId, user);
+    const content = Buffer.from(dto.contentBase64, 'base64');
+    if (content.length > 10 * 1024 * 1024) throw new BadRequestException('Upload exceeds the 10 MB limit');
+    const stored = await this.storage.putImport(organizationId, content);
+    return this.createBatch(organizationId, { legalEntityId: dto.legalEntityId, sourceSystemId: dto.sourceSystemId, idempotencyKey: dto.idempotencyKey, originalFilename: dto.originalFilename, contentHash: stored.sha256, fileType: dto.fileType } as CreateImportBatchDto, user).then(async (batch) => {
+      return this.prisma.importBatch.update({ where: { id: batch.id }, data: { storageKey: stored.key } });
+    });
   }
   async queueBatch(organizationId: string, id: string, user: AuthenticatedUser) {
     await this.scope(organizationId, user);

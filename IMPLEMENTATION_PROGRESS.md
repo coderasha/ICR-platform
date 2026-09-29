@@ -253,3 +253,119 @@
 - Added negative cross-origin and positive Bearer compatibility coverage.
 - `pnpm test`: **passed** across the workspace (**API 46 tests; worker 1 test**).
 - `pnpm --filter api build` and `pnpm --filter api lint`: **passed**.
+
+## 2026-09-29 — Reconciliation run workspace
+
+- Added `/reconciliation`, an API-connected organization selector, draft-run form, and persisted run-history table.
+- The UI limits creation to active legal entities and clearly labels draft runs as non-executed until normalized transaction staging is available.
+- `pnpm --filter web lint` and `pnpm --filter web exec tsc --noEmit`: **passed**.
+
+## 2026-09-29 — CSV normalization kernel
+
+- Added a deterministic CSV parser and canonical transaction-row normalizer to the worker.
+- It handles quoted CSV values, preserves financial amounts as decimal strings, normalizes currency codes, and reports actionable errors with original row numbers.
+- Validation rejects absent source keys, invalid ISO dates, non-ISO currencies, and amounts exceeding six decimal places.
+- `pnpm test`: **passed** across the workspace (**API 46 tests; worker 4 tests**).
+- `pnpm --filter worker typecheck`: **passed**.
+
+### Next slice
+
+- Connect secure object storage to this parser, persist `ImportRow` validation output in bounded batches, then create normalized transactions transactionally. No upload is yet represented as a completed import.
+
+## 2026-09-29 — Storage boundary
+
+- Added a local-development storage adapter behind a dedicated service boundary. It generates opaque import keys, never accepts a caller-provided filesystem path, rejects empty content, prevents traversal, and returns a SHA-256 integrity hash.
+- The adapter is suitable for local development; production object-store configuration remains a required deployment implementation rather than an assumed capability.
+- `pnpm --filter api test`: **9 files, 48 tests passed**.
+- `pnpm --filter api build` and `pnpm --filter api lint`: **passed**.
+
+## 2026-09-29 — Authenticated CSV upload staging
+
+- Added `POST /api/v1/organizations/:organizationId/imports/upload` for staged CSV uploads.
+- The endpoint applies a 10 MB decoded-content limit, only accepts CSV, verifies organization access before storage, and generates the storage key and SHA-256 integrity hash on the server.
+- It persists a durable draft batch only after staging storage content; callers cannot select arbitrary filesystem paths or assert a false hash.
+- `pnpm --filter api build`, `pnpm --filter api lint`, and `pnpm --filter api test` (**48 tests**) all passed.
+
+### Next slice
+
+- Wire stored CSV content through the worker normalizer and persist its row-level results in bounded batches. Add cleanup handling for orphaned local objects when downstream database validation fails.
+
+## 2026-09-29 — Worker CSV validation staging
+
+- The `icr-imports` worker now reads staged CSV content through the guarded storage-root path, normalizes it, and persists row-level raw data, normalized output, validation errors and `VALID`/`REJECTED` states.
+- Import batches receive persisted total/valid/rejected counts. At this point the worker deliberately records `FAILED` after validation staging because normalized transactions are not yet persisted; it never labels staged rows as a completed financial import.
+- CSV/read failures produce bounded, durable failure reasons.
+- `pnpm --filter worker typecheck` and `pnpm --filter worker test` (**4 tests**) passed.
+
+### Next slice
+
+- Transactionally create normalized `Transaction` records from valid staged rows, handling duplicate source-record keys and preserving rejected rows. Only then may a batch reach a completed import status.
+
+## 2026-09-29 — Transactional normalized import
+
+- Valid normalized CSV rows are now persisted as organization-scoped `Transaction` records inside a database transaction.
+- The worker detects both repeated keys within a file and existing organization source-record keys. It never overwrites prior source records.
+- Fully successful batches transition to `COMPLETED`; row validation or duplicate conditions yield `COMPLETED_WITH_ERRORS` with accurate imported/valid/rejected counts and a durable reason.
+- Rows become `IMPORTED` only when every valid row in that batch was persisted, avoiding a misleading all-imported marker in partial outcomes.
+- `pnpm test`: **passed** across the workspace (**API 48 tests; worker 4 tests**); worker typecheck passed.
+
+### Next slice
+
+- Add API/UI import history and row-error review, then queue reconciliation runs over these persisted transactions.
+
+## 2026-09-29 — Import review workspace
+
+- Added `/imports`, an API-connected CSV staging and batch-history workspace.
+- Users select an authorized organization and active legal entity, stage a CSV subject to the server-enforced 10 MB limit, and review persisted status/count/error outcomes.
+- The UI explicitly states that upload/staging is not a completed import.
+- `pnpm --filter web lint` and `pnpm --filter web exec tsc --noEmit`: **passed**.
+
+## 2026-09-29 — Import queue controls
+
+- Refactored the import-history workspace to provide per-batch Queue actions for eligible `DRAFT`/`FAILED` batches.
+- Queueing shows an in-flight state and refreshes persisted history only after the API confirms the transition.
+- Improved client-side base64 conversion to avoid an unbounded function-argument spread for allowed upload sizes.
+- `pnpm --filter web lint` and `pnpm --filter web exec tsc --noEmit`: **passed**.
+
+## 2026-09-29 — Operational documentation and correlation
+
+- Added a validated `X-Request-Id` response header for API request correlation; clients may supply a constrained ID or receive a generated UUID.
+- Added [docs/OPERATIONS.md](docs/OPERATIONS.md) covering local services, additive migrations, health/readiness, production configuration boundaries, backups and recovery.
+- `pnpm --filter api build`, `pnpm --filter api lint`, and workspace `pnpm test` all passed (**API 48 tests; worker 4 tests**).
+
+## 2026-09-29 — Exceptions workflow API
+
+- Added organization-scoped exception listing and update endpoints.
+- Listing includes legal-entity, run and related transaction context for investigation without cross-tenant leakage.
+- Assignment and controlled state transitions are server-enforced: `PROPOSED → APPROVED → RESOLVED`; direct resolution is rejected.
+- `pnpm --filter api build`, `pnpm --filter api lint`, and `pnpm --filter api test` (**48 tests**) passed.
+
+## 2026-09-29 — Exceptions workflow test coverage
+
+- Added focused regression tests proving inaccessible organization exceptions are not disclosed and an exception cannot resolve before approval.
+- `pnpm --filter api test`: **10 files, 50 tests passed**.
+- `pnpm --filter api build` and `pnpm --filter api lint`: **passed**.
+
+## 2026-09-29 — Workspace navigation
+
+- Added real sidebar routes for the implemented Reconciliation, Data Management/Imports, and Master Data workspaces.
+- `pnpm --filter web lint` and `pnpm --filter web exec tsc --noEmit`: **passed**.
+
+## 2026-09-29 — Exceptions workspace
+
+- Added `/exceptions`, an API-connected investigation list with organization scope, severity/status, financial exposure, legal entity, run context and durable descriptions.
+- The UI presents Resolve only for `APPROVED` exceptions; server-side lifecycle enforcement remains authoritative.
+- Added the Exceptions route to the main application navigation.
+- `pnpm --filter web lint` and `pnpm --filter web exec tsc --noEmit`: **passed**.
+
+## 2026-09-29 — Transaction ledger API
+
+- Added `GET /api/v1/organizations/:organizationId/transactions` with organization access enforcement, server pagination (1–100 rows), legal-entity filtering and document-reference search.
+- Queries use a transactionally consistent items/count response and include legal-entity context while retaining precise database decimal values.
+- `pnpm --filter api build`, `pnpm --filter api lint`, and `pnpm --filter api test` (**50 tests**) passed.
+
+## 2026-09-29 — Transaction ledger workspace
+
+- Added `/transactions`, an API-connected transaction ledger with organization selection, reference search, server paging, currency-aware string amount display, entity context and status.
+- Added Transactions to application navigation.
+- Refactored the paginated loader to eliminate the exhaustive-deps warning without weakening lint rules. Web lint and TypeScript validation pass cleanly.

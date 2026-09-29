@@ -1,5 +1,7 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { randomUUID } from 'node:crypto';
+import type { NextFunction, Request, Response } from 'express';
 import { AppModule } from './app.module.js';
 
 async function bootstrap() {
@@ -12,6 +14,13 @@ async function bootstrap() {
     origin: webOrigin,
     credentials: true,
     methods: ['GET', 'POST', 'PATCH'],
+  });
+
+  app.use((request: Request, response: Response, next: NextFunction) => {
+    const supplied = request.headers['x-request-id'];
+    const requestId = typeof supplied === 'string' && /^[A-Za-z0-9_-]{8,100}$/.test(supplied) ? supplied : randomUUID();
+    response.setHeader('X-Request-Id', requestId);
+    next();
   });
 
   app.useGlobalPipes(

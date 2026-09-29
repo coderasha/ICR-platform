@@ -15,4 +15,6 @@ export class ReconciliationController {
   list(@Param('organizationId', ParseUUIDPipe) organizationId: string, @Req() request: AuthenticatedRequest) { return this.service.list(organizationId, request.user); }
   @Post() @RequirePermissions('reconciliation:execute')
   create(@Param('organizationId', ParseUUIDPipe) organizationId: string, @Body() dto: CreateReconciliationRunDto, @Req() request: AuthenticatedRequest) { return this.service.create(organizationId, dto, request.user); }
+  @Post(':id/queue') @RequirePermissions('reconciliation:execute')
+  queue(@Param('organizationId', ParseUUIDPipe) organizationId: string, @Param('id', ParseUUIDPipe) id: string, @Req() request: AuthenticatedRequest) { return this.service.queueRun(organizationId, id, request.user); }
 }

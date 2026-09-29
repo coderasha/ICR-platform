@@ -9,6 +9,9 @@ import { MasterDataModule } from './master-data/master-data.module.js';
 import { ImportsModule } from './imports/imports.module.js';
 import { ReconciliationModule } from './reconciliation/reconciliation.module.js';
 import { HealthModule } from './health/health.module.js';
+import { StorageModule } from './storage/storage.module.js';
+import { ExceptionsModule } from './exceptions/exceptions.module.js';
+import { TransactionsModule } from './transactions/transactions.module.js';
 
 @Module({
     imports: [
@@ -23,6 +26,9 @@ import { HealthModule } from './health/health.module.js';
     ImportsModule,
     ReconciliationModule,
     HealthModule,
+    StorageModule,
+    ExceptionsModule,
+    TransactionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -23,3 +23,12 @@ export class CreateImportBatchDto {
   @IsIn(['CSV', 'XLSX'])
   fileType!: 'CSV' | 'XLSX';
 }
+
+export class UploadImportDto {
+  @IsUUID() legalEntityId!: string;
+  @IsOptional() @IsUUID() sourceSystemId?: string;
+  @IsString() @IsNotEmpty() @MaxLength(100) idempotencyKey!: string;
+  @IsString() @IsNotEmpty() @MaxLength(255) originalFilename!: string;
+  @IsIn(['CSV']) fileType!: 'CSV';
+  @IsString() @IsNotEmpty() @MaxLength(13_981_016) @Matches(/^[A-Za-z0-9+/]+={0,2}$/) contentBase64!: string;
+}

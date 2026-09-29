@@ -2,9 +2,14 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import type { AuthenticatedUser } from '../auth/auth-user.interface.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateReconciliationRunDto } from './dto/create-reconciliation-run.dto.js';
+import { ReconciliationRunStatus } from '@prisma/client';
+import { Queue } from 'bullmq';
+import { Redis } from 'ioredis';
 
 @Injectable()
 export class ReconciliationService {
+  private readonly connection = new Redis(process.env.REDIS_URL ?? 'redis://:replace_with_a_different_strong_local_password@127.0.0.1:6379', { maxRetriesPerRequest: null, lazyConnect: true });
+  private readonly queue = new Queue('icr-reconciliation', { connection: this.connection });
   constructor(private readonly prisma: PrismaService) {}
   private async scope(organizationId: string, user: AuthenticatedUser) {
     const platform = user.roles.some((role) => role.code === 'PLATFORM_ADMIN' && role.organizationId === null);
@@ -19,8 +24,25 @@ export class ReconciliationService {
     await this.scope(organizationId, user);
     const start = new Date(dto.periodStart); const end = new Date(dto.periodEnd);
     if (end < start) throw new BadRequestException('Period end date must not precede the start date');
-    const entity = await this.prisma.legalEntity.findFirst({ where: { id: dto.legalEntityId, organizationId, isActive: true }, select: { id: true } });
-    if (!entity) throw new BadRequestException('Legal entity must be active and belong to the selected organization');
-    return this.prisma.reconciliationRun.create({ data: { organizationId, legalEntityId: dto.legalEntityId, name: dto.name.trim(), periodStart: start, periodEnd: end, rulesVersion: dto.rulesVersion.trim() } });
+    if (dto.counterpartLegalEntityId && dto.legalEntityId === dto.counterpartLegalEntityId) throw new BadRequestException('Counterpart legal entity must differ from the primary legal entity');
+    const entityIds = dto.counterpartLegalEntityId ? [dto.legalEntityId, dto.counterpartLegalEntityId] : [dto.legalEntityId];
+    const entities = await this.prisma.legalEntity.findMany({ where: { id: { in: entityIds }, organizationId, isActive: true }, select: { id: true } });
+    if (entities.length !== entityIds.length) throw new BadRequestException('Both legal entities must be active and belong to the selected organization');
+    return this.prisma.reconciliationRun.create({ data: { organizationId, legalEntityId: dto.legalEntityId, counterpartLegalEntityId: dto.counterpartLegalEntityId, name: dto.name.trim(), periodStart: start, periodEnd: end, rulesVersion: dto.rulesVersion.trim() } });
+  }
+  async queueRun(organizationId: string, id: string, user: AuthenticatedUser) {
+    await this.scope(organizationId, user);
+    const run = await this.prisma.reconciliationRun.findFirst({ where: { id, organizationId }, select: { id: true, status: true, counterpartLegalEntityId: true } });
+    if (!run) throw new NotFoundException('Reconciliation run not found');
+    if (!run.counterpartLegalEntityId) throw new BadRequestException('A counterpart legal entity is required before a run can be executed');
+    if (run.status !== ReconciliationRunStatus.DRAFT && run.status !== ReconciliationRunStatus.FAILED) throw new BadRequestException('Only draft or failed reconciliation runs can be queued');
+    const queued = await this.prisma.reconciliationRun.update({ where: { id: run.id }, data: { status: ReconciliationRunStatus.QUEUED, queuedAt: new Date(), failureReason: null, startedAt: null, completedAt: null } });
+    try {
+      await this.queue.add('execute-reconciliation', { runId: run.id, organizationId }, { jobId: run.id, attempts: 3, backoff: { type: 'exponential', delay: 1000 }, removeOnComplete: 1000, removeOnFail: 1000 });
+      return queued;
+    } catch {
+      await this.prisma.reconciliationRun.update({ where: { id: run.id }, data: { status: ReconciliationRunStatus.FAILED, failureReason: 'Queue submission failed; retry when queue connectivity is restored.' } });
+      throw new BadRequestException('Reconciliation queue is unavailable');
+    }
   }
 }

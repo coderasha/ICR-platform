@@ -18,13 +18,13 @@ The API exposes `/api/v1/health` for liveness and `/api/v1/ready` for PostgreSQL
 
 ## Production configuration
 
-Set strong unique values for database, Redis, MinIO and JWT secrets. Set `WEB_ORIGIN` to the exact web application origin. Set `LOCAL_STORAGE_ROOT` only for local development; production uploads require a non-public object-storage adapter before deployment.
+Set strong unique values for database, Redis, MinIO and JWT secrets. Set `WEB_ORIGIN` to the exact web application origin. `STORAGE_DRIVER=local` is development-only. Production requires `STORAGE_DRIVER=s3`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, and `S3_SECRET_ACCESS_KEY`; `S3_ENDPOINT` and `S3_FORCE_PATH_STYLE=true` support MinIO or another S3-compatible service. The bucket must be private and created before the API or worker starts.
 
 The API fails fast in `NODE_ENV=production` unless `JWT_ACCESS_SECRET` is at least 32 characters, `REDIS_URL` is explicitly configured, and `WEB_ORIGIN` is a valid HTTPS origin. The worker likewise refuses to start in production without `REDIS_URL`. This is intentional: do not rely on development fallback connection values in a deployment.
 
 The API adds request IDs and baseline browser security headers. Terminate TLS at the load balancer/reverse proxy, forward the request ID, and keep the application-to-proxy network private. HSTS is emitted only in production.
 
-The current development storage adapter writes to local disk. It is not a substitute for durable, encrypted object storage or a retention policy in production.
+The application uses the configured S3-compatible object store for imports and exception evidence in production. Keep the bucket private, enable provider-side encryption/versioning and lifecycle retention, and grant the API/worker identity only bucket-scoped read/write/delete permissions. The local driver writes to disk and is not suitable for production.
 
 ## Backup and recovery
 

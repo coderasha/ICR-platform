@@ -47,35 +47,35 @@ services:
     networks:
       - icr_backend
 
-  minio:
-    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+  s3:
+    image: motoserver/moto:5.2.3
     restart: unless-stopped
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
+    command: ["-H", "0.0.0.0", "-p", "9000"]
     ports:
       - "127.0.0.1:${MINIO_API_HOST_PORT:-9000}:9000"
-      - "127.0.0.1:${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
-    volumes:
-      - minio_data:/data
-    healthcheck:
-      test:
-        - CMD
-        - mc
-        - ready
-        - local
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+    networks:
+      - icr_backend
+
+  s3-init:
+    build:
+      context: .
+      dockerfile: docker/s3-init.Dockerfile
+    restart: "no"
+    depends_on:
+      s3:
+        condition: service_started
+    environment:
+      S3_ENDPOINT: http://s3:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: ${MINIO_BUCKET:-icr-platform-local}
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
     networks:
       - icr_backend
 
 volumes:
   postgres_data:
   redis_data:
-  minio_data:
 
 networks:
   icr_backend:

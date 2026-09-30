@@ -4,4 +4,5 @@ export class UpdateExceptionDto {
   @IsOptional() @IsIn(['ASSIGNED', 'PROPOSED', 'APPROVED', 'RESOLVED']) status?: 'ASSIGNED' | 'PROPOSED' | 'APPROVED' | 'RESOLVED';
   @IsOptional() @IsString() @MaxLength(1000) resolutionNote?: string;
   @IsOptional() @IsDateString() dueAt?: string | null;
+  @IsOptional() @IsString() @MaxLength(100) rootCause?: string | null;
 }

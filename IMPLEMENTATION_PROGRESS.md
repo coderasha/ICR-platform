@@ -617,3 +617,50 @@
 - Added tenant-scoped server filtering across the reconciliation run lifecycle: draft, queued, processing, completed, completed with exceptions, failed, and cancelled.
 - The Reconciliation workspace now provides a matching status selector while retaining the authoritative run history and actions.
 - API build/lint/tests and web lint/TypeScript validation passed.
+
+## 2026-09-30 — Close controls, root-cause triage and organization administration
+
+- Added durable reconciliation periods with non-overlapping ranges, controlled closure, and audit evidence. Closed periods block both new reconciliation runs and imports containing transactions in their date range. A period can close only after at least one completed contained run and no unresolved contained exceptions.
+- Added root-cause classification to reconciliation exceptions, including audited update history and server-side root-cause filtering in the investigation workspace.
+- Added a permission-protected organization-administration workspace to review members, scoped roles, last-login information and account activity. Administrators can activate/deactivate other members without being able to deactivate themselves.
+- Completed organization-scoped role assignment and removal. The API confirms member and organization scope, accepts only active non-platform roles, prevents duplicate assignments, never permits a tenant administrator to grant `PLATFORM_ADMIN`, and audits every role change. The workspace exposes assignment/removal controls alongside each member.
+
+### Verification (actual results)
+
+- `pnpm prisma validate`: **passed**.
+- API test suite: **17 files, 68 tests passed**; API build and lint passed.
+- Worker test suite: **3 files, 6 tests passed**; worker typecheck passed.
+- Web lint and direct TypeScript validation passed.
+
+## 2026-09-30 — Transaction legal-entity filtering
+
+- Exposed the existing tenant-scoped legal-entity ledger filter in the Transactions workspace. Active entities load for the selected organization, and changing organization safely clears the old entity scope.
+- Web lint and TypeScript validation passed.
+
+## 2026-09-30 — Reconciliation period management
+
+- Added persisted, organization-scoped reconciliation periods and the additive migration `20260930021000_add_reconciliation_periods`.
+- Finance users can open non-overlapping periods, review period history, and request closure. The server permits closure only after at least one completed period run and after all period exceptions are resolved; creation and closure are audit logged.
+- Added the Periods workspace and navigation entry, plus focused tests for invalid ranges and blocked closure. API **63 tests**, worker **6 tests**, API/web checks, and diff validation passed.
+- Apply the additive migration before using period management against a deployed database.
+
+## 2026-09-30 — Closed-period run lock
+
+- Reconciliation-run creation now rejects date ranges that overlap a closed reconciliation period, preventing a closed financial period from being reopened through a new run.
+- Added focused regression coverage. API build/lint/tests passed (**16 files, 64 tests**).
+
+## 2026-09-30 — Closed-period import lock
+
+- The import worker now rejects a batch before it persists rows or transactions when normalized transaction dates fall inside a closed reconciliation period. The batch records a durable failure reason rather than partially importing locked-period data.
+- Worker typecheck/tests and API tests passed.
+
+## 2026-09-30 — Exception root-cause classification
+
+- Added persisted root-cause classification to exceptions with additive migration `20260930022000_add_exception_root_cause`.
+- Authorized investigators can set, revise, or clear the classification from triage; changes are included in the existing exception audit evidence and the current classification is visible in the list.
+- Prisma generation, API build/lint/tests, and web lint/TypeScript validation passed. Apply the additive migration before deployment.
+
+## 2026-09-30 — Root-cause triage filtering
+
+- Added a case-insensitive, tenant-scoped root-cause filter to the exception API and triage workspace, composable with status, severity, ownership, and overdue filters.
+- API build/lint and web lint/TypeScript validation passed.

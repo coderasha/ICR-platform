@@ -1,26 +1,31 @@
-import { ImportStatus, PrismaClient, ReconciliationRunStatus, TransactionStatus } from '@prisma/client';
+import { ImportStatus, PrismaClient, ReconciliationPeriodStatus, ReconciliationRunStatus, TransactionStatus } from '@prisma/client';
 import { Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import { canWorkerClaimImport } from './import-lifecycle.js';
 import { normalizeCsv } from './csv-normalizer.js';
-import { readFile } from 'node:fs/promises';
-import { resolve, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 import { matchReconciliationTransactions } from './reconciliation-matching.js';
+import { assertWorkerStorageConfiguration, readStoredObject } from './object-storage.js';
 
 type ImportJob = { batchId: string; organizationId: string };
 if (process.env.NODE_ENV === 'production' && !process.env.REDIS_URL) throw new Error('REDIS_URL must be configured for the worker in production');
+assertWorkerStorageConfiguration();
 const prisma = new PrismaClient();
 const connection = new Redis(process.env.REDIS_URL ?? 'redis://:replace_with_a_different_strong_local_password@127.0.0.1:6379', { maxRetriesPerRequest: null });
-const storageRoot = resolve(process.env.LOCAL_STORAGE_ROOT ?? '/tmp/icr-storage');
-function storagePath(key: string) { const path = resolve(storageRoot, key); if (!path.startsWith(`${storageRoot}${sep}`)) throw new Error('Invalid storage key'); return path; }
 
 const worker = new Worker<ImportJob>('icr-imports', async (job) => {
   const batch = await prisma.importBatch.findFirst({ where: { id: job.data.batchId, organizationId: job.data.organizationId }, select: { id: true, status: true, totalRows: true, storageKey: true, columnMapping: true, organizationId: true, legalEntityId: true } });
   if (!batch || !canWorkerClaimImport(batch.status)) return;
   await prisma.importBatch.update({ where: { id: batch.id }, data: { status: ImportStatus.PROCESSING, startedAt: new Date(), failureReason: null } });
   try {
-    const rows = normalizeCsv((await readFile(storagePath(batch.storageKey))).toString('utf8'), batch.columnMapping as Record<string, string> | undefined);
+    const rows = normalizeCsv((await readStoredObject(batch.storageKey)).toString('utf8'), batch.columnMapping as Record<string, string> | undefined);
+    const normalizedDates = rows.flatMap((row) => row.normalized ? [new Date(row.normalized.transactionDate)] : []);
+    if (normalizedDates.length) {
+      const earliest = new Date(Math.min(...normalizedDates.map((date) => date.getTime()))); const latest = new Date(Math.max(...normalizedDates.map((date) => date.getTime())));
+      const closedPeriods = await prisma.reconciliationPeriod.findMany({ where: { organizationId: batch.organizationId, status: ReconciliationPeriodStatus.CLOSED, periodStart: { lte: latest }, periodEnd: { gte: earliest } }, select: { name: true, periodStart: true, periodEnd: true } });
+      const locked = closedPeriods.find((period) => normalizedDates.some((date) => date >= period.periodStart && date <= period.periodEnd));
+      if (locked) throw new Error(`Import contains transactions in closed reconciliation period: ${locked.name}`);
+    }
     await prisma.importRow.createMany({ data: rows.map((row) => ({ importBatchId: batch.id, rowNumber: row.rowNumber, status: row.errors.length === 0 ? 'VALID' : 'REJECTED', rawData: row.raw, normalizedData: row.normalized ?? undefined, errors: row.errors.length ? row.errors : undefined })), skipDuplicates: true });
     const valid = rows.filter((row) => row.errors.length === 0 && row.normalized);
     const keys = valid.map((row) => row.normalized!.sourceRecordKey);
@@ -47,10 +52,14 @@ worker.on('failed', (job, error) => console.error('Import job failed', { jobId: 
 
 type ReconciliationJob = { runId: string; organizationId: string };
 const reconciliationWorker = new Worker<ReconciliationJob>('icr-reconciliation', async (job) => {
-  const run = await prisma.reconciliationRun.findFirst({ where: { id: job.data.runId, organizationId: job.data.organizationId }, select: { id: true, status: true, organizationId: true, legalEntityId: true, counterpartLegalEntityId: true, periodStart: true, periodEnd: true } });
+  const run = await prisma.reconciliationRun.findFirst({ where: { id: job.data.runId, organizationId: job.data.organizationId }, select: { id: true, status: true, organizationId: true, legalEntityId: true, counterpartLegalEntityId: true, periodStart: true, periodEnd: true, rulesVersion: true } });
   if (!run || run.status !== ReconciliationRunStatus.QUEUED) return;
   if (!run.counterpartLegalEntityId) {
     await prisma.reconciliationRun.update({ where: { id: run.id }, data: { status: ReconciliationRunStatus.FAILED, completedAt: new Date(), failureReason: 'A counterpart legal entity is required for execution.' } });
+    return;
+  }
+  if (run.rulesVersion !== 'exact-reference-v1') {
+    await prisma.reconciliationRun.update({ where: { id: run.id }, data: { status: ReconciliationRunStatus.FAILED, completedAt: new Date(), failureReason: `Unsupported reconciliation rules version: ${run.rulesVersion}` } });
     return;
   }
   await prisma.reconciliationRun.update({ where: { id: run.id }, data: { status: ReconciliationRunStatus.PROCESSING, startedAt: new Date(), failureReason: null } });

@@ -2,11 +2,13 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import type { AuthenticatedUser } from '../auth/auth-user.interface.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateReconciliationRunDto } from './dto/create-reconciliation-run.dto.js';
-import { ReconciliationRunStatus } from '@prisma/client';
+import { ReconciliationPeriodStatus, ReconciliationRunStatus } from '@prisma/client';
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
 import { AuditService } from '../audit/audit.service.js';
 import { ListReconciliationRunsDto } from './dto/list-reconciliation-runs.dto.js';
+
+export const SUPPORTED_RECONCILIATION_RULES_VERSION = 'exact-reference-v1';
 
 @Injectable()
 export class ReconciliationService {
@@ -44,8 +46,11 @@ export class ReconciliationService {
   }
   async create(organizationId: string, dto: CreateReconciliationRunDto, user: AuthenticatedUser) {
     await this.scope(organizationId, user);
+    if (dto.rulesVersion.trim() !== SUPPORTED_RECONCILIATION_RULES_VERSION) throw new BadRequestException(`Unsupported reconciliation rules version. Use ${SUPPORTED_RECONCILIATION_RULES_VERSION}`);
     const start = new Date(dto.periodStart); const end = new Date(dto.periodEnd);
     if (end < start) throw new BadRequestException('Period end date must not precede the start date');
+    const closedPeriod = await this.prisma.reconciliationPeriod.findFirst({ where: { organizationId, status: ReconciliationPeriodStatus.CLOSED, periodStart: { lte: end }, periodEnd: { gte: start } }, select: { name: true } });
+    if (closedPeriod) throw new BadRequestException(`Reconciliation period "${closedPeriod.name}" is closed`);
     if (dto.counterpartLegalEntityId && dto.legalEntityId === dto.counterpartLegalEntityId) throw new BadRequestException('Counterpart legal entity must differ from the primary legal entity');
     const entityIds = dto.counterpartLegalEntityId ? [dto.legalEntityId, dto.counterpartLegalEntityId] : [dto.legalEntityId];
     const entities = await this.prisma.legalEntity.findMany({ where: { id: { in: entityIds }, organizationId, isActive: true }, select: { id: true } });

@@ -3,7 +3,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 const api = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3003/api/v1";
-type Org = { id: string; name: string };
+type Entity = { id: string; code: string; name: string; isActive: boolean };
+type Org = { id: string; name: string; legalEntities?: Entity[] };
 type Transaction = {
   id: string;
   documentReference: string | null;
@@ -34,6 +35,7 @@ export default function TransactionsPage() {
   const [currencyCode, setCurrencyCode] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [legalEntityId, setLegalEntityId] = useState("");
   const [error, setError] = useState("");
   const loadOrgs = useCallback(async () => {
     const me = await fetch(`${api}/auth/me`, { credentials: "include" });
@@ -61,6 +63,7 @@ export default function TransactionsPage() {
       if (currencyCode.trim()) params.set("currencyCode", currencyCode.trim().toUpperCase());
       if (dateFrom) params.set("dateFrom", dateFrom);
       if (dateTo) params.set("dateTo", dateTo);
+      if (legalEntityId) params.set("legalEntityId", legalEntityId);
       const response = await fetch(
         `${api}/organizations/${orgId}/transactions?${params}`,
         { credentials: "include" },
@@ -71,13 +74,14 @@ export default function TransactionsPage() {
       }
       setResult((await response.json()) as Result);
     },
-    [currencyCode, dateFrom, dateTo, orgId, search, status],
+    [currencyCode, dateFrom, dateTo, legalEntityId, orgId, search, status],
   );
   useEffect(() => {
     void Promise.resolve()
       .then(loadOrgs)
       .catch(() => setError("Unable to load workspace."));
   }, [loadOrgs]);
+  useEffect(() => { if (!orgId) return; void fetch(`${api}/organizations/${orgId}`, { credentials: "include" }).then(async (response) => { if (!response.ok) throw new Error(); const organization = await response.json() as Org; setOrgs((items) => items.map((item) => item.id === orgId ? organization : item)); }).catch(() => setError("Unable to load legal entities.")); }, [orgId]);
   useEffect(() => {
     void Promise.resolve().then(() => load(1));
   }, [load]);
@@ -98,7 +102,7 @@ export default function TransactionsPage() {
           <select
             aria-label="Organization"
             value={orgId}
-            onChange={(event) => setOrgId(event.target.value)}
+            onChange={(event) => { setOrgId(event.target.value); setLegalEntityId(""); }}
             className="h-10 min-w-64 rounded-md border border-[#dce2ea] bg-white px-3"
           >
             {orgs.map((org) => (
@@ -124,6 +128,7 @@ export default function TransactionsPage() {
               Search
             </button>
           </form>
+          <select aria-label="Legal entity" value={legalEntityId} onChange={(event) => setLegalEntityId(event.target.value)} className="h-10 rounded-md border border-[#dce2ea] bg-white px-3 text-sm"><option value="">All legal entities</option>{(orgs.find((org) => org.id === orgId)?.legalEntities ?? []).filter((entity) => entity.isActive).map((entity) => <option key={entity.id} value={entity.id}>{entity.code} — {entity.name}</option>)}</select>
         </div>
         <div className="mt-3 flex flex-wrap items-end gap-3 rounded-lg border border-[#e2e6ec] bg-white p-3 shadow-sm">
           <label className="text-sm font-medium">Status<select aria-label="Transaction status" value={status} onChange={(event) => setStatus(event.target.value)} className="ml-2 h-9 rounded-md border border-[#dce2ea] bg-white px-2 font-normal"><option value="">All</option><option>PENDING</option><option>MATCHED</option><option>UNMATCHED</option><option>EXCEPTION</option></select></label>

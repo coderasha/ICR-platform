@@ -24,11 +24,13 @@ const apiBase =
 const nav = [
   ["Overview", "▦", "/"],
   ["Reconciliation", "⌘", "/reconciliation"],
+  ["Periods", "◫", "/periods"],
   ["Transactions", "↔", "/transactions"],
   ["Exceptions", "!", "/exceptions"],
   ["Data management", "↥", "/imports"],
   ["Master data", "◇", "/master-data"],
   ["Audit history", "◷", "/audit"],
+  ["Administration", "⚙", "/administration"],
 ];
 
 export default function Home() {

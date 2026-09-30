@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsIn, IsOptional } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class ListExceptionsDto {
   @IsOptional() @IsIn(['OPEN', 'ASSIGNED', 'PROPOSED', 'APPROVED', 'RESOLVED'])
@@ -10,4 +10,6 @@ export class ListExceptionsDto {
   assignedToMe?: boolean;
   @IsOptional() @Transform(({ value }) => value === 'true') @IsBoolean()
   overdue?: boolean;
+  @IsOptional() @IsString() @MaxLength(100)
+  rootCause?: string;
 }

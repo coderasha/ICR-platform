@@ -15,6 +15,8 @@ import { TransactionsModule } from './transactions/transactions.module.js';
 import { AuditModule } from './audit/audit.module.js';
 import { DashboardModule } from './dashboard/dashboard.module.js';
 import { ReportsModule } from './reports/reports.module.js';
+import { PeriodsModule } from './periods/periods.module.js';
+import { AdministrationModule } from './administration/administration.module.js';
 
 @Module({
     imports: [
@@ -35,6 +37,8 @@ import { ReportsModule } from './reports/reports.module.js';
     AuditModule,
     DashboardModule,
     ReportsModule,
+    PeriodsModule,
+    AdministrationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

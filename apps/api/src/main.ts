@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { randomUUID } from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
 import { AppModule } from './app.module.js';
+import { assertStorageConfiguration } from './storage/storage.service.js';
 
 async function bootstrap() {
   const isProduction = process.env.NODE_ENV === 'production';
@@ -12,6 +13,7 @@ async function bootstrap() {
     if (!process.env.REDIS_URL) throw new Error('REDIS_URL must be configured in production');
     try { if (new URL(webOrigin).protocol !== 'https:') throw new Error('WEB_ORIGIN must use HTTPS in production'); } catch { throw new Error('WEB_ORIGIN must be a valid HTTPS origin in production'); }
   }
+  assertStorageConfiguration();
   const app = await NestFactory.create(AppModule);
 
   app.setGlobalPrefix('api/v1');
@@ -19,7 +21,7 @@ async function bootstrap() {
   app.enableCors({
     origin: webOrigin,
     credentials: true,
-    methods: ['GET', 'POST', 'PATCH'],
+    methods: ['GET', 'POST', 'PATCH', 'DELETE'],
   });
 
   app.use((request: Request, response: Response, next: NextFunction) => {

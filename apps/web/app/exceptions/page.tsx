@@ -15,6 +15,7 @@ type Item = {
   currencyCode?: string | null;
   dueAt?: string | null;
   assignedToUserId?: string | null;
+  rootCause?: string | null;
   legalEntity: { code: string };
   reconciliationRun: { name: string };
 };
@@ -40,6 +41,7 @@ export default function ExceptionsPage() {
   const [severityFilter, setSeverityFilter] = useState("");
   const [mineOnly, setMineOnly] = useState(false);
   const [overdueOnly, setOverdueOnly] = useState(false);
+  const [rootCauseFilter, setRootCauseFilter] = useState("");
   const load = useCallback(async () => {
     const me = await fetch(`${api}/auth/me`, { credentials: "include" });
     if (me.status === 401) {
@@ -58,7 +60,7 @@ export default function ExceptionsPage() {
   }, [router]);
   const list = useCallback(async () => {
     if (!orgId) return;
-    const query = new URLSearchParams({ ...(statusFilter && { status: statusFilter }), ...(severityFilter && { severity: severityFilter }), ...(mineOnly && { assignedToMe: "true" }), ...(overdueOnly && { overdue: "true" }) });
+    const query = new URLSearchParams({ ...(statusFilter && { status: statusFilter }), ...(severityFilter && { severity: severityFilter }), ...(rootCauseFilter.trim() && { rootCause: rootCauseFilter.trim() }), ...(mineOnly && { assignedToMe: "true" }), ...(overdueOnly && { overdue: "true" }) });
     const response = await fetch(`${api}/organizations/${orgId}/exceptions?${query}`, {
       credentials: "include",
     });
@@ -67,7 +69,7 @@ export default function ExceptionsPage() {
       return;
     }
     setItems((await response.json()) as Item[]);
-  }, [mineOnly, orgId, overdueOnly, severityFilter, statusFilter]);
+  }, [mineOnly, orgId, overdueOnly, rootCauseFilter, severityFilter, statusFilter]);
   useEffect(() => {
     void Promise.resolve()
       .then(load)
@@ -103,6 +105,7 @@ export default function ExceptionsPage() {
     if (dueAt === null) return;
     void update(item, { dueAt: dueAt.trim() || null });
   }
+  function setRootCause(item: Item) { const rootCause = window.prompt("Root-cause classification (leave blank to clear).", item.rootCause ?? ""); if (rootCause === null) return; void update(item, { rootCause: rootCause.trim() || null }); }
   async function exportCsv() {
     try {
       const response = await fetch(
@@ -227,7 +230,8 @@ export default function ExceptionsPage() {
           <label className="text-sm font-medium">Severity<select aria-label="Exception severity" value={severityFilter} onChange={(event) => setSeverityFilter(event.target.value)} className="ml-2 h-9 rounded-md border border-[#dce2ea] bg-white px-2 font-normal"><option value="">All</option><option>CRITICAL</option><option>HIGH</option><option>MEDIUM</option><option>LOW</option></select></label>
           <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={mineOnly} onChange={(event) => setMineOnly(event.target.checked)} /> Assigned to me</label>
           <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={overdueOnly} onChange={(event) => setOverdueOnly(event.target.checked)} /> Overdue</label>
-          {(statusFilter || severityFilter || mineOnly || overdueOnly) && <button onClick={() => { setStatusFilter(""); setSeverityFilter(""); setMineOnly(false); setOverdueOnly(false); }} className="text-sm font-medium text-[#2467bf] hover:underline">Clear filters</button>}
+          <label className="text-sm font-medium">Root cause<input aria-label="Root cause" value={rootCauseFilter} onChange={(event) => setRootCauseFilter(event.target.value)} placeholder="e.g. timing" maxLength={100} className="ml-2 h-9 rounded-md border border-[#dce2ea] px-2 font-normal" /></label>
+          {(statusFilter || severityFilter || rootCauseFilter || mineOnly || overdueOnly) && <button onClick={() => { setStatusFilter(""); setSeverityFilter(""); setRootCauseFilter(""); setMineOnly(false); setOverdueOnly(false); }} className="text-sm font-medium text-[#2467bf] hover:underline">Clear filters</button>}
         </div>
         <section className="mt-6 overflow-hidden rounded-lg border border-[#e2e6ec] bg-white shadow-sm">
           {items.length === 0 ? (
@@ -258,6 +262,7 @@ export default function ExceptionsPage() {
                         Run: {item.reconciliationRun.name}
                       </p>
                       <p className={`mt-1 text-xs ${item.assignedToUserId ? "text-[#526176]" : "text-[#a53b2d]"}`}>{item.assignedToUserId === user?.id ? "Assigned to you" : item.assignedToUserId ? "Assigned" : "Unassigned"}</p>
+                      {item.rootCause && <p className="mt-1 text-xs text-[#526176]">Root cause: {item.rootCause}</p>}
                       {item.dueAt && <p className={`mt-1 text-xs ${item.status !== "RESOLVED" && new Date(item.dueAt) < new Date() ? "font-medium text-[#a53b2d]" : "text-[#687386]"}`}>Due {new Date(item.dueAt).toLocaleDateString()}{item.status !== "RESOLVED" && new Date(item.dueAt) < new Date() ? " · Overdue" : ""}</p>}
                     </td>
                     <td className="px-4 py-4 text-[#526176]">
@@ -279,6 +284,7 @@ export default function ExceptionsPage() {
                           Notes
                         </button>
                         {user?.permissions.includes("exceptions:resolve") && <button disabled={working === item.id} onClick={() => setDueDate(item)} className="text-xs font-medium text-[#2467bf] hover:underline">{item.dueAt ? "Change due date" : "Set due date"}</button>}
+                        {user?.permissions.includes("exceptions:resolve") && <button disabled={working === item.id} onClick={() => setRootCause(item)} className="text-xs font-medium text-[#2467bf] hover:underline">{item.rootCause ? "Change root cause" : "Set root cause"}</button>}
                         {(item.status === "OPEN" ||
                           item.status === "ASSIGNED") &&
                           user?.permissions.includes("exceptions:resolve") && (

@@ -75,6 +75,11 @@ enum ExceptionSeverity {
   CRITICAL
 }
 
+enum ReconciliationPeriodStatus {
+  OPEN
+  CLOSED
+}
+
 // ============================================================
 // ORGANIZATION & LEGAL ENTITIES
 // ============================================================
@@ -97,6 +102,7 @@ model Organization {
   importBatches              ImportBatch[]
   transactions               Transaction[]
   reconciliationRuns         ReconciliationRun[]
+  reconciliationPeriods      ReconciliationPeriod[]
   reconciliationExceptions   ReconciliationException[]
   exceptionNotes             ExceptionNote[]
   exceptionAttachments       ExceptionAttachment[]
@@ -462,6 +468,25 @@ model ReconciliationRun {
   @@map("reconciliation_runs")
 }
 
+model ReconciliationPeriod {
+  id             String                     @id @default(uuid()) @db.Uuid
+  organizationId String                     @map("organization_id") @db.Uuid
+  name           String                     @db.VarChar(100)
+  periodStart    DateTime                   @map("period_start") @db.Date
+  periodEnd      DateTime                   @map("period_end") @db.Date
+  status         ReconciliationPeriodStatus @default(OPEN)
+  closedAt       DateTime?                  @map("closed_at") @db.Timestamptz(6)
+  closedByUserId String?                    @map("closed_by_user_id") @db.Uuid
+  createdAt      DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, name])
+  @@index([organizationId, periodStart, periodEnd])
+  @@map("reconciliation_periods")
+}
+
 model ReconciliationMatch {
   id                    String   @id @default(uuid()) @db.Uuid
   reconciliationRunId   String   @map("reconciliation_run_id") @db.Uuid
@@ -504,6 +529,7 @@ model ReconciliationException {
   currencyCode        String?           @map("currency_code") @db.Char(3)
   exposureAmount      Decimal?          @map("exposure_amount") @db.Decimal(20, 6)
   description         String            @db.VarChar(1000)
+  rootCause           String?           @map("root_cause") @db.VarChar(100)
   assignedToUserId    String?           @map("assigned_to_user_id") @db.Uuid
   dueAt               DateTime?         @map("due_at") @db.Timestamptz(6)
   resolvedAt          DateTime?         @map("resolved_at") @db.Timestamptz(6)

@@ -70,9 +70,13 @@ export class ImportsService {
     if (content.length > 10 * 1024 * 1024) throw new BadRequestException('Upload exceeds the 10 MB limit');
     const stored = await this.storage.putImport(organizationId, content);
     const columnMapping = this.validateMapping(dto.columnMapping);
-    return this.createBatch(organizationId, { legalEntityId: dto.legalEntityId, sourceSystemId: dto.sourceSystemId, idempotencyKey: dto.idempotencyKey, originalFilename: dto.originalFilename, contentHash: stored.sha256, fileType: dto.fileType } as CreateImportBatchDto, user).then(async (batch) => {
-      return this.prisma.importBatch.update({ where: { id: batch.id }, data: { storageKey: stored.key, columnMapping } });
-    });
+    try {
+      const batch = await this.createBatch(organizationId, { legalEntityId: dto.legalEntityId, sourceSystemId: dto.sourceSystemId, idempotencyKey: dto.idempotencyKey, originalFilename: dto.originalFilename, contentHash: stored.sha256, fileType: dto.fileType } as CreateImportBatchDto, user);
+      return await this.prisma.importBatch.update({ where: { id: batch.id }, data: { storageKey: stored.key, columnMapping } });
+    } catch (error) {
+      await this.storage.remove(stored.key).catch(() => undefined);
+      throw error;
+    }
   }
   async queueBatch(organizationId: string, id: string, user: AuthenticatedUser) {
     await this.scope(organizationId, user);

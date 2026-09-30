@@ -289,6 +289,110 @@
 - The page calls the organization-scoped audit endpoint with the HttpOnly cookie session; it persists neither event data nor credentials in browser storage.
 - Web lint and direct TypeScript validation, API tests/build, and worker typecheck/tests: **passed**.
 
+## 2026-09-29 — Persisted overview metrics
+
+- Added `GET /api/v1/organizations/:organizationId/dashboard`, protected by `reconciliation:read` and tenant-scoped server-side. It returns counts derived from persisted records only: imported transactions, matched transactions, non-resolved exceptions and completed runs.
+- Replaced the dashboard’s fabricated placeholder/zero cards with selected-organization metrics and a matching percentage calculated from the persisted count pair. It intentionally does not aggregate currency amounts into a false cross-currency exposure total.
+- The close-readiness panel now reflects actual imported, matched and open-exception counts and links to the functional import workspace.
+- API tests/build/lint and web lint/direct TypeScript validation: **passed**.
+
+## 2026-09-29 — Controlled exception export
+
+- Added `GET /api/v1/organizations/:organizationId/reports/exceptions.csv`, requiring `reports:export` and enforcing server-side organization scope before querying. The generated RFC-style CSV preserves exact decimal strings and contains exception, entity, run, document reference, status, severity and timestamp context.
+- Exports are limited to the newest 10,000 records; the response supplies `X-Export-Truncated` and the UI clearly reports when that safety limit was reached.
+- Added an **Export CSV** action to `/exceptions`. It uses the existing cookie session, downloads a browser blob only after authorization succeeds, and reports permission or export errors without presenting false success.
+- Every export is recorded as an audit event with the initiating user, emitted row count, truncation flag and configured limit.
+- API tests/build/lint, web lint/direct TypeScript validation, worker checks and root `pnpm test`: **passed**.
+
+## 2026-09-29 — Controlled exception workflow
+
+- Tightened exception lifecycle enforcement on the server: an exception may move only from `OPEN`/`ASSIGNED` to `PROPOSED`, from `PROPOSED` to `APPROVED`, and from `APPROVED` to `RESOLVED`.
+- Approval now additionally requires `approvals:approve`; investigation, assignment-to-self, proposing and resolution require `exceptions:resolve`. The API validates permissions independently of which buttons a browser displays.
+- Added exception-table actions for **Assign to me**, **Propose**, **Approve**, and **Resolve**, shown only where the current session’s permissions and record state make the action meaningful. Audit events distinguish approval from other workflow changes.
+- API tests now include an explicit rejected approval attempt without approval permission: **51 API tests passed**. API build/lint and web lint/direct TypeScript validation: **passed**.
+
+## 2026-09-29 — Import audit coverage
+
+- Expanded audit evidence across the import lifecycle: source-system creation, import-batch creation, queueing, worker completion (with row/result counts) and worker failure (with bounded reason) are all recorded.
+- Worker completion audit writes occur in the same database transaction as imported transaction records and import-batch final state, so a completed import cannot lack its terminal evidence due to a partial post-processing write.
+- Audit metadata deliberately records operational counts and lifecycle state, not raw uploaded financial rows or file content.
+- API tests/build/lint and worker tests/typecheck/lint: **passed**.
+
+## 2026-09-29 — Master-data audit coverage
+
+- Added actor-attributed audit records for creation and updates of counterparties, accounts and intercompany relationships.
+- Update records capture the relevant prior and resulting business fields, including controlled activation changes and relationship effective-to date, while avoiding unrelated record payloads.
+- API tests/build/lint, worker typecheck and web lint/direct TypeScript validation: **passed**.
+
+## 2026-09-29 — Production startup hardening
+
+- The API now fails fast in production if the JWT secret is weak/missing, `REDIS_URL` is absent, or `WEB_ORIGIN` is not an HTTPS origin. The worker independently refuses a production start without explicit Redis configuration.
+- Added baseline response headers for MIME sniffing, framing, referrer policy, browser permissions and same-site resource policy; production responses additionally emit HSTS. Existing request correlation IDs are retained.
+- Updated operations guidance with the startup contract and reverse-proxy/TLS expectations.
+- API tests/build/lint, worker typecheck/lint/tests and web lint/direct TypeScript validation: **passed**.
+
+## 2026-09-29 — Reconciliation run cancellation
+
+- Added `POST /api/v1/organizations/:organizationId/reconciliation-runs/:id/cancel`. Only draft or queued runs may be cancelled; processing or completed financial outcomes cannot be overwritten through this control.
+- Cancellation is persisted as `CANCELLED`, audited with prior/final lifecycle state and shown in the reconciliation workspace. Queued BullMQ jobs are harmless after cancellation because the worker claims only records still in `QUEUED` state.
+- API tests/build/lint, web lint/direct TypeScript validation and worker checks: **passed**.
+
+## 2026-09-29 — Truthful liveness indicator
+
+- Replaced the dashboard sidebar’s static “System operational” assertion with a real liveness check against `/api/v1/health`.
+- The UI explicitly distinguishes checking, operational and unavailable states; it does not expose infrastructure detail or infer database readiness from a liveness check.
+- Web lint/direct TypeScript validation, API tests/build and worker typecheck/tests: **passed**.
+
+## 2026-09-29 — Summary and export test coverage
+
+- Added focused API tests for the organization dashboard summary and exception CSV export.
+- Coverage verifies tenant non-disclosure, persistence-derived summary counts, CSV quoting for commas/quotes and audit evidence for completed exports.
+- API test suite: **12 files, 54 tests passed**; API build/lint, worker tests/typecheck and web lint/direct TypeScript validation: **passed**.
+
+## 2026-09-29 — Reconciliation result review
+
+- Added tenant-scoped `GET /api/v1/organizations/:organizationId/reconciliation-runs/:id`, protected by `reconciliation:read`, returning a run’s persisted counterpart context, counters, match items and run-specific exceptions.
+- Run history now links to a detail workspace showing exact matched transaction pairs (reference, currency, decimal amount and date) and exceptions raised by that run. The organization context travels in the link and is revalidated by the API; no cross-organization probing is performed.
+- API tests/build/lint, web lint/direct TypeScript validation and worker checks: **passed**.
+
+## 2026-09-29 — Import rejection review
+
+- Added tenant-scoped `GET /api/v1/organizations/:organizationId/imports/:id/rows`, requiring `imports:read`. It validates optional row-status filtering and bounded pagination, and confirms the batch belongs to the selected organization before returning row data.
+- Added **Review rejected** to import history. Operators can inspect up to 100 rejected source rows with their preserved validation errors and original normalized input context, rather than relying only on rejection counts.
+- API tests/build/lint, web lint/direct TypeScript validation and worker checks: **passed**.
+
+## 2026-09-29 — Spreadsheet-safe exports
+
+- Hardened CSV export cells against spreadsheet formula injection. Values beginning with formula/control prefixes (`=`, `+`, `-`, `@`, tab or carriage return) are prefixed as text before RFC-style CSV quoting.
+- Added regression coverage for a formula-like document reference while retaining existing quotation/CSV safety coverage.
+- API tests/build/lint, web lint/direct TypeScript validation and worker checks: **passed**.
+
+## 2026-09-29 — Source-system management workspace
+
+- Exposed the existing tenant-scoped source-system API in `/imports`: operators can register source-system code, name and type, review configured systems and select an active source when staging a CSV.
+- New import batches preserve the selected source-system relationship; source-system creation remains permission-protected and audit logged by the API.
+- API tests/build/lint, web lint/direct TypeScript validation and worker checks: **passed**.
+
+## 2026-09-29 — Filterable audit investigation
+
+- Audit history now supports tenant-scoped server-side action/entity-type filters and validated pagination (default 50, maximum 200 records per page), returning a total count rather than a fixed snapshot.
+- Updated `/audit` with action/entity filtering, result counts and previous/next paging controls. Filtering remains applied at the API, not merely to browser-cached events.
+- API tests/build/lint, web lint/direct TypeScript validation and worker checks: **passed**.
+
+## 2026-09-29 — Transaction drill-down
+
+- Added tenant-scoped `GET /api/v1/organizations/:organizationId/transactions/:id`, protected by `reconciliation:read`. It returns normalized transaction data, original source payload, legal entity, import/source-system provenance, persisted match associations and exceptions.
+- Transaction list references now open an authorized detail page. The selected organization is carried through the link and revalidated at the API; the detail page distinguishes absent association data from an absent transaction.
+- Transaction list/detail scope now verifies the requested organization exists, eliminating an empty-result ambiguity for stale organization identifiers.
+- API tests/build/lint, web lint/direct TypeScript validation and worker checks: **passed**.
+
+## 2026-09-29 — Exception collaboration notes
+
+- Added additive migration `20260929210000_add_exception_notes` and durable exception notes with organization/exception scope, optional author reference, bounded body and chronological indexes.
+- Added authenticated, tenant-scoped note list/create endpoints beneath exceptions. Reading requires `exceptions:read`; creating a note requires `exceptions:resolve`; note creation emits audit evidence without copying note content into audit metadata.
+- Added a notes panel to the exception workspace so users can review author-attributed discussion and add a bounded note only after API confirmation.
+- Prisma validate/generate, API tests/build/lint, web lint/direct TypeScript validation and worker checks: **passed**.
+
 ## 2026-09-29 — Operational readiness endpoints
 
 - Added `GET /api/v1/health` for liveness and `GET /api/v1/ready` for database-backed readiness.
@@ -420,3 +524,96 @@
 - Added `/transactions`, an API-connected transaction ledger with organization selection, reference search, server paging, currency-aware string amount display, entity context and status.
 - Added Transactions to application navigation.
 - Refactored the paginated loader to eliminate the exhaustive-deps warning without weakening lint rules. Web lint and TypeScript validation pass cleanly.
+
+## 2026-09-29 — Rejected import-row export API
+
+- Added `GET /api/v1/organizations/:organizationId/imports/:id/rejected-rows.csv` for authorized (`imports:read`) retrieval of persisted rejected rows.
+- The export is tenant-scoped, capped at 10,000 rows with an explicit truncation header, quotes CSV cells, neutralizes spreadsheet formula prefixes, and records an audit event without exposing row content in the audit trail.
+- The import-review workspace now provides a direct `Download CSV` control beside the rejected-row preview. It uses the authenticated API export and communicates when the server applied the 10,000-row cap.
+- API, web and worker targeted lint/type/test gates passed (API **54 tests**, worker **5 tests**).
+
+## 2026-09-29 — Import export regression coverage
+
+- Added service-level tests for rejected-row export tenant isolation, spreadsheet-formula neutralization, and audit evidence that excludes row content.
+- `pnpm --filter api test`: **13 files, 56 tests passed**.
+
+## 2026-09-29 — Exception supporting evidence
+
+- Added persisted exception attachments with an additive Prisma migration (`20260929213000_add_exception_attachments`). Attachments retain only a scoped opaque storage key, approved content type, bounded size, integrity hash and uploader metadata.
+- Authorized investigators can upload PDF/JPEG/PNG/text evidence (maximum 5 MB), review attachment metadata and download it through a tenant-scoped, `nosniff` endpoint. Upload and download events are audit logged without file contents.
+- The Exceptions workspace now presents notes and supporting evidence together, including authenticated upload and download controls.
+- API build/lint and API tests passed (**13 files, 57 tests**). Apply the additive migration before enabling the feature against a deployed database.
+
+## 2026-09-29 — Exception triage filters
+
+- Added server-side exception filters for lifecycle status, severity, and the current assignee, each protected by the existing organization scope.
+- The Exceptions workspace now queries these filters directly and provides clear/reset controls for practical close-team triage.
+- API build/lint/tests and web lint/TypeScript validation passed.
+
+## 2026-09-29 — Transaction ledger filters
+
+- Added tenant-scoped server filtering for transaction status, ISO currency code, and inclusive transaction-date range, alongside the existing entity and reference search controls.
+- The API rejects inverted date ranges before querying; focused tests cover that validation and query construction.
+- The Transactions workspace provides corresponding status, currency and date controls while retaining server pagination.
+- API build/lint/tests (**14 files, 59 tests**) and web lint/TypeScript validation passed.
+
+## 2026-09-30 — Per-batch CSV column mapping
+
+- Added a mapping step to CSV staging. Users define source headers for the canonical source record key, document reference, transaction date, amount and currency fields; required mappings must be distinct and are saved immutably on the import batch.
+- The import worker consumes the stored mapping during normalization while preserving the original source headers and values as the raw source record.
+- Added worker coverage for mapped-header normalization. API build/lint, worker typecheck/tests (**6 worker tests**), and web lint/TypeScript validation passed.
+
+## 2026-09-30 — Data-driven close readiness
+
+- Dashboard close readiness now derives an explicit state from persisted activity: awaiting data, awaiting reconciliation, blocked by unresolved exceptions, or ready.
+- The overview displays the state and an actionable reason rather than a generic progress label; its existing metrics remain tenant scoped.
+- API build/lint/tests and web lint/TypeScript validation passed.
+
+## 2026-09-30 — Safe import-batch cancellation
+
+- Added an authorized cancellation action for `DRAFT` and `QUEUED` import batches. Processing and completed batches remain immutable through this endpoint.
+- The Imports workspace asks for confirmation and refreshes durable batch history only after server confirmation. Cancellation is audit logged, and the worker claim guard ignores a cancelled queued job.
+- Added lifecycle-transition coverage; API build/lint/tests (**14 files, 60 tests**) and web lint/TypeScript validation passed.
+
+## 2026-09-30 — Overdue exception triage
+
+- Added a tenant-scoped overdue filter that returns only unresolved exceptions whose configured due date has passed; it composes safely with status, severity, and assignee criteria.
+- The Exceptions workspace now provides an Overdue filter and reset control.
+- API build/lint/tests and web lint/TypeScript validation passed.
+
+## 2026-09-30 — Exception due-date visibility
+
+- Exception rows now show configured due dates and a clear overdue indicator for unresolved work, making overdue-filter results immediately explainable during triage.
+- Web lint and TypeScript validation passed.
+
+## 2026-09-30 — Exception due-date management
+
+- Authorized exception owners can now set, revise, or clear a due date from the triage workspace. The server validates date input, retains lifecycle protections, and audits the before/after due date values.
+- Added a regression test for due-date persistence and audit evidence; API build/tests passed (**14 files, 61 tests**), alongside web lint/TypeScript validation.
+
+## 2026-09-30 — CSV header preview
+
+- The import staging form now previews detected source headers before submission, including quoted CSV header cells, so users can configure the per-batch canonical mapping with direct visibility of the source file.
+- Web lint and TypeScript validation passed.
+
+## 2026-09-30 — Exception ownership visibility
+
+- The exception triage table now makes persisted ownership explicit: unassigned, assigned, or assigned to the current user.
+- Web lint and TypeScript validation passed.
+
+## 2026-09-30 — Import source provenance
+
+- Import history now displays the recorded source system for every batch, including an explicit unspecified state for older or unclassified uploads.
+- Web lint and TypeScript validation passed.
+
+## 2026-09-30 — Import batch-status triage
+
+- Added tenant-scoped server filtering for the complete import batch lifecycle: draft, queued, processing, completed, completed with errors, failed, and cancelled.
+- The Imports workspace now provides a matching status control that reloads authoritative batch history.
+- API build/lint/tests and web lint/TypeScript validation passed.
+
+## 2026-09-30 — Reconciliation run-status triage
+
+- Added tenant-scoped server filtering across the reconciliation run lifecycle: draft, queued, processing, completed, completed with exceptions, failed, and cancelled.
+- The Reconciliation workspace now provides a matching status selector while retaining the authoritative run history and actions.
+- API build/lint/tests and web lint/TypeScript validation passed.

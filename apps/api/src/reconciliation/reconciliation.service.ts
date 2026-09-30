@@ -6,6 +6,7 @@ import { ReconciliationRunStatus } from '@prisma/client';
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
 import { AuditService } from '../audit/audit.service.js';
+import { ListReconciliationRunsDto } from './dto/list-reconciliation-runs.dto.js';
 
 @Injectable()
 export class ReconciliationService {
@@ -17,9 +18,29 @@ export class ReconciliationService {
     if (!platform && !user.organizationIds.includes(organizationId)) throw new NotFoundException('Organization not found');
     if (!await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { id: true } })) throw new NotFoundException('Organization not found');
   }
-  async list(organizationId: string, user: AuthenticatedUser) {
+  async list(organizationId: string, dto: ListReconciliationRunsDto, user: AuthenticatedUser) {
     await this.scope(organizationId, user);
-    return this.prisma.reconciliationRun.findMany({ where: { organizationId }, include: { legalEntity: { select: { code: true, name: true } }, counterpartLegalEntity: { select: { code: true, name: true } }, _count: { select: { matches: true, exceptions: true } } }, orderBy: { createdAt: 'desc' } });
+    return this.prisma.reconciliationRun.findMany({ where: { organizationId, ...(dto.status && { status: dto.status }) }, include: { legalEntity: { select: { code: true, name: true } }, counterpartLegalEntity: { select: { code: true, name: true } }, _count: { select: { matches: true, exceptions: true } } }, orderBy: { createdAt: 'desc' } });
+  }
+  async detail(organizationId: string, id: string, user: AuthenticatedUser) {
+    await this.scope(organizationId, user);
+    const run = await this.prisma.reconciliationRun.findFirst({
+      where: { id, organizationId },
+      include: {
+        legalEntity: { select: { code: true, name: true } },
+        counterpartLegalEntity: { select: { code: true, name: true } },
+        matches: {
+          include: { items: { include: { transaction: { select: { id: true, documentReference: true, amount: true, currencyCode: true, transactionDate: true } } } } },
+          orderBy: { createdAt: 'asc' },
+        },
+        exceptions: {
+          include: { transaction: { select: { documentReference: true, amount: true, currencyCode: true, transactionDate: true } }, legalEntity: { select: { code: true } } },
+          orderBy: [{ severity: 'desc' }, { createdAt: 'asc' }],
+        },
+      },
+    });
+    if (!run) throw new NotFoundException('Reconciliation run not found');
+    return run;
   }
   async create(organizationId: string, dto: CreateReconciliationRunDto, user: AuthenticatedUser) {
     await this.scope(organizationId, user);
@@ -48,5 +69,14 @@ export class ReconciliationService {
       await this.prisma.reconciliationRun.update({ where: { id: run.id }, data: { status: ReconciliationRunStatus.FAILED, failureReason: 'Queue submission failed; retry when queue connectivity is restored.' } });
       throw new BadRequestException('Reconciliation queue is unavailable');
     }
+  }
+  async cancelRun(organizationId: string, id: string, user: AuthenticatedUser) {
+    await this.scope(organizationId, user);
+    const run = await this.prisma.reconciliationRun.findFirst({ where: { id, organizationId }, select: { id: true, status: true } });
+    if (!run) throw new NotFoundException('Reconciliation run not found');
+    if (run.status !== ReconciliationRunStatus.DRAFT && run.status !== ReconciliationRunStatus.QUEUED) throw new BadRequestException('Only draft or queued reconciliation runs can be cancelled');
+    const cancelled = await this.prisma.reconciliationRun.update({ where: { id: run.id }, data: { status: ReconciliationRunStatus.CANCELLED, completedAt: new Date(), failureReason: null } });
+    await this.audit?.record({ organizationId, actorUserId: user.id, action: 'RECONCILIATION_RUN_CANCELLED', entityType: 'ReconciliationRun', entityId: cancelled.id, before: { status: run.status }, after: { status: cancelled.status } });
+    return cancelled;
   }
 }

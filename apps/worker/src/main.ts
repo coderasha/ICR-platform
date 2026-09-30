@@ -9,17 +9,18 @@ import { createHash } from 'node:crypto';
 import { matchReconciliationTransactions } from './reconciliation-matching.js';
 
 type ImportJob = { batchId: string; organizationId: string };
+if (process.env.NODE_ENV === 'production' && !process.env.REDIS_URL) throw new Error('REDIS_URL must be configured for the worker in production');
 const prisma = new PrismaClient();
 const connection = new Redis(process.env.REDIS_URL ?? 'redis://:replace_with_a_different_strong_local_password@127.0.0.1:6379', { maxRetriesPerRequest: null });
 const storageRoot = resolve(process.env.LOCAL_STORAGE_ROOT ?? '/tmp/icr-storage');
 function storagePath(key: string) { const path = resolve(storageRoot, key); if (!path.startsWith(`${storageRoot}${sep}`)) throw new Error('Invalid storage key'); return path; }
 
 const worker = new Worker<ImportJob>('icr-imports', async (job) => {
-  const batch = await prisma.importBatch.findFirst({ where: { id: job.data.batchId, organizationId: job.data.organizationId }, select: { id: true, status: true, totalRows: true, storageKey: true, organizationId: true, legalEntityId: true } });
+  const batch = await prisma.importBatch.findFirst({ where: { id: job.data.batchId, organizationId: job.data.organizationId }, select: { id: true, status: true, totalRows: true, storageKey: true, columnMapping: true, organizationId: true, legalEntityId: true } });
   if (!batch || !canWorkerClaimImport(batch.status)) return;
   await prisma.importBatch.update({ where: { id: batch.id }, data: { status: ImportStatus.PROCESSING, startedAt: new Date(), failureReason: null } });
   try {
-    const rows = normalizeCsv((await readFile(storagePath(batch.storageKey))).toString('utf8'));
+    const rows = normalizeCsv((await readFile(storagePath(batch.storageKey))).toString('utf8'), batch.columnMapping as Record<string, string> | undefined);
     await prisma.importRow.createMany({ data: rows.map((row) => ({ importBatchId: batch.id, rowNumber: row.rowNumber, status: row.errors.length === 0 ? 'VALID' : 'REJECTED', rawData: row.raw, normalizedData: row.normalized ?? undefined, errors: row.errors.length ? row.errors : undefined })), skipDuplicates: true });
     const valid = rows.filter((row) => row.errors.length === 0 && row.normalized);
     const keys = valid.map((row) => row.normalized!.sourceRecordKey);
@@ -31,10 +32,14 @@ const worker = new Worker<ImportJob>('icr-imports', async (job) => {
       if (accepted.length) await transaction.transaction.createMany({ data: accepted.map((row) => ({ organizationId: batch.organizationId, legalEntityId: batch.legalEntityId, importBatchId: batch.id, sourceRecordKey: row.normalized!.sourceRecordKey, documentReference: row.normalized!.documentReference, transactionDate: new Date(row.normalized!.transactionDate), amount: row.normalized!.amount, currencyCode: row.normalized!.currencyCode, sourcePayload: row.raw })) });
       if (accepted.length === valid.length) await transaction.importRow.updateMany({ where: { importBatchId: batch.id, status: 'VALID' }, data: { status: 'IMPORTED' } });
       const duplicateCount = valid.length - accepted.length;
-      await transaction.importBatch.update({ where: { id: batch.id }, data: { totalRows: rows.length, validRows: valid.length, rejectedRows: rows.length - valid.length, importedRows: accepted.length, status: duplicateCount || rows.length !== valid.length ? ImportStatus.COMPLETED_WITH_ERRORS : ImportStatus.COMPLETED, completedAt: new Date(), failureReason: duplicateCount ? `${duplicateCount} duplicate source record(s) were not imported.` : null } });
+      const finalStatus = duplicateCount || rows.length !== valid.length ? ImportStatus.COMPLETED_WITH_ERRORS : ImportStatus.COMPLETED;
+      await transaction.importBatch.update({ where: { id: batch.id }, data: { totalRows: rows.length, validRows: valid.length, rejectedRows: rows.length - valid.length, importedRows: accepted.length, status: finalStatus, completedAt: new Date(), failureReason: duplicateCount ? `${duplicateCount} duplicate source record(s) were not imported.` : null } });
+      await transaction.auditEvent.create({ data: { organizationId: batch.organizationId, action: 'IMPORT_BATCH_COMPLETED', entityType: 'ImportBatch', entityId: batch.id, before: { status: ImportStatus.PROCESSING }, after: { status: finalStatus, totalRows: rows.length, validRows: valid.length, rejectedRows: rows.length - valid.length, importedRows: accepted.length }, metadata: { worker: 'icr-imports', duplicateCount } } });
     });
   } catch (error) {
-    await prisma.importBatch.update({ where: { id: batch.id }, data: { status: ImportStatus.FAILED, completedAt: new Date(), failureReason: error instanceof Error ? `CSV staging failed: ${error.message}`.slice(0, 1000) : 'CSV staging failed' } });
+    const failureReason = error instanceof Error ? `CSV staging failed: ${error.message}`.slice(0, 1000) : 'CSV staging failed';
+    await prisma.importBatch.update({ where: { id: batch.id }, data: { status: ImportStatus.FAILED, completedAt: new Date(), failureReason } });
+    await prisma.auditEvent.create({ data: { organizationId: batch.organizationId, action: 'IMPORT_BATCH_FAILED', entityType: 'ImportBatch', entityId: batch.id, before: { status: ImportStatus.PROCESSING }, after: { status: ImportStatus.FAILED }, metadata: { worker: 'icr-imports', failureReason } } });
   }
 }, { connection, concurrency: 2 });
 

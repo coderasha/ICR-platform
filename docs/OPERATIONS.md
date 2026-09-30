@@ -20,6 +20,10 @@ The API exposes `/api/v1/health` for liveness and `/api/v1/ready` for PostgreSQL
 
 Set strong unique values for database, Redis, MinIO and JWT secrets. Set `WEB_ORIGIN` to the exact web application origin. Set `LOCAL_STORAGE_ROOT` only for local development; production uploads require a non-public object-storage adapter before deployment.
 
+The API fails fast in `NODE_ENV=production` unless `JWT_ACCESS_SECRET` is at least 32 characters, `REDIS_URL` is explicitly configured, and `WEB_ORIGIN` is a valid HTTPS origin. The worker likewise refuses to start in production without `REDIS_URL`. This is intentional: do not rely on development fallback connection values in a deployment.
+
+The API adds request IDs and baseline browser security headers. Terminate TLS at the load balancer/reverse proxy, forward the request ID, and keep the application-to-proxy network private. HSTS is emitted only in production.
+
 The current development storage adapter writes to local disk. It is not a substitute for durable, encrypted object storage or a retention policy in production.
 
 ## Backup and recovery

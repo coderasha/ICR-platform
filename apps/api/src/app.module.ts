@@ -13,6 +13,8 @@ import { StorageModule } from './storage/storage.module.js';
 import { ExceptionsModule } from './exceptions/exceptions.module.js';
 import { TransactionsModule } from './transactions/transactions.module.js';
 import { AuditModule } from './audit/audit.module.js';
+import { DashboardModule } from './dashboard/dashboard.module.js';
+import { ReportsModule } from './reports/reports.module.js';
 
 @Module({
     imports: [
@@ -31,6 +33,8 @@ import { AuditModule } from './audit/audit.module.js';
     ExceptionsModule,
     TransactionsModule,
     AuditModule,
+    DashboardModule,
+    ReportsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

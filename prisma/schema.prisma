@@ -98,6 +98,8 @@ model Organization {
   transactions               Transaction[]
   reconciliationRuns         ReconciliationRun[]
   reconciliationExceptions   ReconciliationException[]
+  exceptionNotes             ExceptionNote[]
+  exceptionAttachments       ExceptionAttachment[]
   auditEvents                AuditEvent[]
 
   @@map("organizations")
@@ -153,6 +155,8 @@ model User {
   roles          UserRole[]
   organizationAccesses UserOrganizationAccess[]
   auditEvents         AuditEvent[] @relation("AuditActor")
+  exceptionNotes      ExceptionNote[] @relation("ExceptionNoteAuthor")
+  exceptionAttachments ExceptionAttachment[] @relation("ExceptionAttachmentUploader")
 
   @@index([isActive])
   @@map("users")
@@ -510,10 +514,50 @@ model ReconciliationException {
   legalEntity        LegalEntity        @relation(fields: [organizationId, legalEntityId], references: [organizationId, id], onDelete: Restrict)
   reconciliationRun ReconciliationRun  @relation(fields: [reconciliationRunId], references: [id], onDelete: Restrict)
   transaction        Transaction?       @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  notes              ExceptionNote[]
+  attachments        ExceptionAttachment[]
 
   @@index([organizationId, status, severity])
   @@index([reconciliationRunId])
   @@map("reconciliation_exceptions")
+}
+
+model ExceptionNote {
+  id                       String   @id @default(uuid()) @db.Uuid
+  organizationId           String   @map("organization_id") @db.Uuid
+  reconciliationExceptionId String  @map("reconciliation_exception_id") @db.Uuid
+  authorUserId             String?  @map("author_user_id") @db.Uuid
+  body                     String   @db.VarChar(1000)
+  createdAt                DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization            Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  reconciliationException ReconciliationException @relation(fields: [reconciliationExceptionId], references: [id], onDelete: Restrict)
+  author                  User?                    @relation("ExceptionNoteAuthor", fields: [authorUserId], references: [id], onDelete: Restrict)
+
+  @@index([reconciliationExceptionId, createdAt])
+  @@index([organizationId, createdAt])
+  @@map("exception_notes")
+}
+
+model ExceptionAttachment {
+  id                        String   @id @default(uuid()) @db.Uuid
+  organizationId            String   @map("organization_id") @db.Uuid
+  reconciliationExceptionId String   @map("reconciliation_exception_id") @db.Uuid
+  uploadedByUserId          String?  @map("uploaded_by_user_id") @db.Uuid
+  originalFilename          String   @map("original_filename") @db.VarChar(255)
+  storageKey                String   @unique @map("storage_key") @db.VarChar(500)
+  contentType               String   @map("content_type") @db.VarChar(100)
+  sizeBytes                 Int      @map("size_bytes")
+  contentHash               String   @map("content_hash") @db.Char(64)
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization            Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  reconciliationException ReconciliationException @relation(fields: [reconciliationExceptionId], references: [id], onDelete: Restrict)
+  uploadedBy              User?                    @relation("ExceptionAttachmentUploader", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([reconciliationExceptionId, createdAt])
+  @@index([organizationId, createdAt])
+  @@map("exception_attachments")
 }
 
 // Append-only operational record. Application roles receive no update/delete endpoint for this model.

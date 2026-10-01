@@ -632,6 +632,21 @@
 - Worker test suite: **3 files, 6 tests passed**; worker typecheck passed.
 - Web lint and direct TypeScript validation passed.
 
+## 2026-09-30 — Release storage and migration readiness
+
+- Replaced the production-only local-file assumption with a configured S3-compatible adapter used by both the API and worker. Production startup requires S3 credentials and verifies that the configured private bucket is reachable before serving or processing work.
+- Upload staging now deletes an object if batch persistence fails, avoiding orphaned source files. The worker retrieves imports through the same S3/local boundary rather than directly assuming a shared filesystem.
+- Added an S3-compatible local integration service and repository-owned signed bucket initializer. This replaces unavailable MinIO container images while keeping the application compatible with private AWS S3 or any S3-compatible production store.
+- Repaired the migration chain with an additive `legal_entities (organization_id, id)` unique constraint required by tenant-scoped foreign keys. A real PostgreSQL deployment of all 12 migrations now completes successfully.
+- Restricted reconciliation creation to the implemented, tested `exact-reference-v1` strategy. Unsupported version values are rejected rather than being silently executed as a different rule.
+
+### Verification (actual results)
+
+- `pnpm prisma migrate deploy` completed against local PostgreSQL; `pnpm prisma migrate status` reports the schema is up to date.
+- Local Redis, PostgreSQL and S3-compatible storage started successfully; the S3 bucket bootstrap and SDK access were verified.
+- API build/lint, worker typecheck/lint, web lint/direct TypeScript validation, and `pnpm test` all passed (**69 API tests; 6 worker tests**).
+- The standard web build now uses Next.js webpack after the Turbopack CSS worker repeatedly failed to bind an internal port in this environment; `pnpm --filter web build` completed successfully for all 13 routes.
+
 ## 2026-09-30 — Transaction legal-entity filtering
 
 - Exposed the existing tenant-scoped legal-entity ledger filter in the Transactions workspace. Active entities load for the selected organization, and changing organization safely clears the old entity scope.

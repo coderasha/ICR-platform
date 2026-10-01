@@ -2,7 +2,7 @@
 
 ## Local services
 
-Copy `.env.example` to `.env`, replace every placeholder secret, then start PostgreSQL, Redis and MinIO with `docker compose up -d`. The compose ports bind only to loopback by default.
+Copy `.env.example` to `.env`, replace every placeholder secret, then start PostgreSQL, Redis and the local S3-compatible test service with `docker compose up -d`. The compose ports bind only to loopback by default. The `s3-init` service creates the configured local bucket automatically.
 
 Run `pnpm prisma migrate deploy` before starting the API or worker against a database that has not received the current migrations. Do not use `prisma migrate reset` outside a disposable local environment.
 
@@ -18,7 +18,7 @@ The API exposes `/api/v1/health` for liveness and `/api/v1/ready` for PostgreSQL
 
 ## Production configuration
 
-Set strong unique values for database, Redis, MinIO and JWT secrets. Set `WEB_ORIGIN` to the exact web application origin. `STORAGE_DRIVER=local` is development-only. Production requires `STORAGE_DRIVER=s3`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, and `S3_SECRET_ACCESS_KEY`; `S3_ENDPOINT` and `S3_FORCE_PATH_STYLE=true` support MinIO or another S3-compatible service. The bucket must be private and created before the API or worker starts.
+Set strong unique values for database, Redis, object storage and JWT secrets. Set `WEB_ORIGIN` to the exact web application origin. `STORAGE_DRIVER=local` is development-only. Production requires `STORAGE_DRIVER=s3`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, and `S3_SECRET_ACCESS_KEY`; `S3_ENDPOINT` and `S3_FORCE_PATH_STYLE=true` support a private S3-compatible deployment. The bucket must be private and created before the API or worker starts.
 
 The API fails fast in `NODE_ENV=production` unless `JWT_ACCESS_SECRET` is at least 32 characters, `REDIS_URL` is explicitly configured, and `WEB_ORIGIN` is a valid HTTPS origin. The worker likewise refuses to start in production without `REDIS_URL`. This is intentional: do not rely on development fallback connection values in a deployment.
 

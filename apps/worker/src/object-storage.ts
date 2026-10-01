@@ -1,4 +1,4 @@
-import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, HeadBucketCommand, S3Client } from '@aws-sdk/client-s3';
 import { readFile } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 
@@ -29,6 +29,10 @@ export function assertWorkerStorageConfiguration() {
     const missing = ['S3_BUCKET', 'S3_REGION', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY'].filter((name) => !process.env[name]);
     if (missing.length) throw new Error(`S3 storage is missing configuration: ${missing.join(', ')}`);
   }
+}
+
+export async function assertWorkerStorageReady() {
+  if (selectedDriver === 's3') await s3!.send(new HeadBucketCommand({ Bucket: bucket }));
 }
 
 export async function readStoredObject(key: string): Promise<Buffer> {

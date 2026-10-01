@@ -1,5 +1,5 @@
-import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { DeleteObjectCommand, GetObjectCommand, HeadBucketCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
@@ -26,7 +26,7 @@ export function assertStorageConfiguration() {
 }
 
 @Injectable()
-export class StorageService {
+export class StorageService implements OnModuleInit {
   private readonly selectedDriver = driver();
   private readonly root = resolve(process.env.LOCAL_STORAGE_ROOT ?? '/tmp/icr-storage');
   private readonly bucket = process.env.S3_BUCKET;
@@ -44,6 +44,18 @@ export class StorageService {
     const path = resolve(this.root, key);
     if (!path.startsWith(`${this.root}${sep}`)) throw new BadRequestException('Invalid storage key');
     return path;
+  }
+
+  async onModuleInit() {
+    if (process.env.NODE_ENV === 'production') await this.ready();
+  }
+
+  async ready() {
+    if (this.selectedDriver === 's3') {
+      await this.s3!.send(new HeadBucketCommand({ Bucket: this.bucket }));
+      return;
+    }
+    await mkdir(this.root, { recursive: true });
   }
 
   private async put(key: string, content: Buffer) {

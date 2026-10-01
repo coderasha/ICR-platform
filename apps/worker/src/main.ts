@@ -5,11 +5,12 @@ import { canWorkerClaimImport } from './import-lifecycle.js';
 import { normalizeCsv } from './csv-normalizer.js';
 import { createHash } from 'node:crypto';
 import { matchReconciliationTransactions } from './reconciliation-matching.js';
-import { assertWorkerStorageConfiguration, readStoredObject } from './object-storage.js';
+import { assertWorkerStorageConfiguration, assertWorkerStorageReady, readStoredObject } from './object-storage.js';
 
 type ImportJob = { batchId: string; organizationId: string };
 if (process.env.NODE_ENV === 'production' && !process.env.REDIS_URL) throw new Error('REDIS_URL must be configured for the worker in production');
 assertWorkerStorageConfiguration();
+if (process.env.NODE_ENV === 'production') await assertWorkerStorageReady();
 const prisma = new PrismaClient();
 const connection = new Redis(process.env.REDIS_URL ?? 'redis://:replace_with_a_different_strong_local_password@127.0.0.1:6379', { maxRetriesPerRequest: null });
 

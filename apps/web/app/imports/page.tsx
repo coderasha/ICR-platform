@@ -2,8 +2,21 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import * as XLSX from "xlsx";
 const api = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3003/api/v1";
 function csvHeaders(line: string) { const headers: string[] = []; let value = ""; let quoted = false; for (let index = 0; index < line.length; index += 1) { const character = line[index]; if (quoted && character === '"' && line[index + 1] === '"') { value += '"'; index += 1; } else if (character === '"') quoted = !quoted; else if (character === "," && !quoted) { headers.push(value.trim()); value = ""; } else value += character; } headers.push(value.trim()); return headers.filter(Boolean).slice(0, 30); }
+type MappingKey = "sourceRecordKey" | "documentReference" | "transactionDate" | "amount" | "currencyCode";
+type ColumnMapping = Record<MappingKey, string>;
+const defaultColumnMapping: ColumnMapping = { sourceRecordKey: "source_record_key", documentReference: "document_reference", transactionDate: "transaction_date", amount: "amount", currencyCode: "currency_code" };
+const headerAliases: Record<MappingKey, string[]> = {
+  sourceRecordKey: ["source_record_key", "source_record_id", "transaction_id", "transaction_key", "journal_id", "journal_key", "entry_id", "record_id"],
+  documentReference: ["document_reference", "document_ref", "invoice_number", "invoice_no", "invoice_id", "reference", "reference_number", "document_number", "document_no"],
+  transactionDate: ["transaction_date", "posting_date", "document_date", "entry_date", "date"],
+  amount: ["amount", "transaction_amount", "local_amount", "net_amount", "value"],
+  currencyCode: ["currency_code", "currency", "currency_code_iso", "currency_iso"],
+};
+function normalizedHeader(value: string) { return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, ""); }
+function detectColumnMapping(headers: string[]): ColumnMapping { const detected = { ...defaultColumnMapping }; for (const key of Object.keys(headerAliases) as MappingKey[]) { const header = headers.find((item) => headerAliases[key].includes(normalizedHeader(item))); if (header) detected[key] = header; } return detected; }
 type Entity = { id: string; code: string; name: string; isActive: boolean };
 type Org = { id: string; name: string; legalEntities?: Entity[] };
 type Batch = {
@@ -46,6 +59,7 @@ export default function ImportsPage() {
   const [rejectedRows, setRejectedRows] = useState<ImportRow[]>([]);
   const [downloading, setDownloading] = useState(false);
   const [sourceHeaders, setSourceHeaders] = useState<string[]>([]);
+  const [columnMapping, setColumnMapping] = useState<ColumnMapping>(defaultColumnMapping);
   const [batchStatus, setBatchStatus] = useState("");
   const load = useCallback(async () => {
     const me = await fetch(`${api}/auth/me`, { credentials: "include" });
@@ -91,15 +105,17 @@ export default function ImportsPage() {
   }, [loadBatches]);
   async function upload(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const file = form.get("file");
-    if (!(file instanceof File) || file.size > 10 * 1024 * 1024) {
-      setNotice("Select a CSV file no larger than 10 MB.");
+    const isXlsx = file instanceof File && file.name.toLowerCase().endsWith(".xlsx");
+    const isCsv = file instanceof File && file.name.toLowerCase().endsWith(".csv");
+    if (!(file instanceof File) || (!isCsv && !isXlsx) || file.size > 10 * 1024 * 1024) {
+      setNotice("Select a CSV or Excel (.xlsx) file no larger than 10 MB.");
       return;
     }
     setBusy(true);
     try {
-      const columnMapping = { sourceRecordKey: String(form.get("sourceRecordKey") ?? "").trim(), documentReference: String(form.get("documentReference") ?? "").trim(), transactionDate: String(form.get("transactionDate") ?? "").trim(), amount: String(form.get("amount") ?? "").trim(), currencyCode: String(form.get("currencyCode") ?? "").trim() };
       const bytes = new Uint8Array(await file.arrayBuffer());
       let binary = "";
       for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -114,7 +130,7 @@ export default function ImportsPage() {
             sourceSystemId: form.get("sourceSystemId") || undefined,
             idempotencyKey: crypto.randomUUID(),
             originalFilename: file.name,
-            fileType: "CSV",
+            fileType: isXlsx ? "XLSX" : "CSV",
             columnMapping,
             contentBase64: btoa(binary),
           }),
@@ -126,7 +142,7 @@ export default function ImportsPage() {
       if (!response.ok)
         throw new Error(body?.message ?? "Upload could not be staged.");
       setNotice("CSV staged. Queue it when ready for validation.");
-      event.currentTarget.reset();
+      formElement.reset();
       setSourceHeaders([]);
       await loadBatches();
     } catch (cause) {
@@ -138,9 +154,17 @@ export default function ImportsPage() {
     }
   }
   async function previewHeaders(file: File | undefined) {
-    if (!file) { setSourceHeaders([]); return; }
-    const firstLine = (await file.slice(0, 32_768).text()).split(/\r?\n/, 1)[0] ?? "";
-    setSourceHeaders(csvHeaders(firstLine));
+    if (!file) { setSourceHeaders([]); setColumnMapping(defaultColumnMapping); return; }
+    try {
+      let headers: string[];
+      if (file.name.toLowerCase().endsWith(".xlsx")) {
+        const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+        const sheet = workbook.SheetNames[0];
+        headers = sheet ? ((XLSX.utils.sheet_to_json(workbook.Sheets[sheet], { header: 1, blankrows: false })[0] as unknown[] | undefined)?.map((value) => String(value).trim()).filter(Boolean).slice(0, 30) ?? []) : [];
+      } else headers = csvHeaders((await file.slice(0, 32_768).text()).split(/\r?\n/, 1)[0] ?? "");
+      setSourceHeaders(headers);
+      setColumnMapping(detectColumnMapping(headers));
+    } catch { setSourceHeaders([]); setColumnMapping(defaultColumnMapping); setNotice("We could not read the file headers. You can still enter the column names manually."); }
   }
   async function createSource(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -271,7 +295,7 @@ export default function ImportsPage() {
     <main className="min-h-screen bg-[#f6f7f9] text-[#172033]">
       <header className="flex h-[73px] items-center justify-between border-b border-[#e4e7ec] bg-white px-5 sm:px-8">
         <Link href="/" className="font-semibold text-[#10243f]">
-          Ledgerline
+          LedgeRecon
         </Link>
         <Link href="/" className="text-sm font-medium text-[#2467bf]">
           ← Overview
@@ -303,9 +327,9 @@ export default function ImportsPage() {
             onSubmit={upload}
             className="rounded-lg border border-[#e2e6ec] bg-white p-5 shadow-sm"
           >
-            <h2 className="font-semibold">Stage CSV import</h2>
+            <h2 className="font-semibold">Stage transaction import</h2>
             <p className="mt-1 text-sm text-[#687386]">
-              CSV only, maximum 10 MB. Uploading is not importing.
+              CSV or Excel (.xlsx), maximum 10 MB. Uploading is not importing.
             </p>
             <label className="mt-4 block text-sm font-medium">
               Legal entity
@@ -339,33 +363,33 @@ export default function ImportsPage() {
               </select>
             </label>
             <label className="mt-4 block text-sm font-medium">
-              CSV file
+              CSV or Excel file
               <input
                 required
-                accept=".csv,text/csv"
+                accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 name="file"
                 type="file"
                 onChange={(event) => void previewHeaders(event.target.files?.[0])}
                 className="mt-1 block w-full text-sm font-normal"
               />
             </label>
-            {sourceHeaders.length > 0 && <p className="mt-2 text-xs text-[#526176]">Detected headers: {sourceHeaders.join(", ")}</p>}
+            {sourceHeaders.length > 0 && <p className="mt-2 text-xs text-[#526176]">Detected headers: {sourceHeaders.join(", ")}. Matching columns were mapped automatically.</p>}
             <details className="mt-4 rounded-md border border-[#e2e6ec] p-3">
-              <summary className="cursor-pointer text-sm font-medium">Map CSV columns</summary>
-              <p className="mt-1 text-xs text-[#687386]">Set the source header for each canonical field. The mapping is saved with this batch.</p>
+              <summary className="cursor-pointer text-sm font-medium">Review detected mapping</summary>
+              <p className="mt-1 text-xs text-[#687386]">The mapping is detected from the file&apos;s headers and saved with this batch. Change it only if a detected field is incorrect.</p>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                <label className="text-xs font-medium">Source record key<input required name="sourceRecordKey" defaultValue="source_record_key" maxLength={100} className="mt-1 h-9 w-full rounded-md border border-[#d7dee8] px-2 font-normal" /></label>
-                <label className="text-xs font-medium">Document reference<input name="documentReference" defaultValue="document_reference" maxLength={100} className="mt-1 h-9 w-full rounded-md border border-[#d7dee8] px-2 font-normal" /></label>
-                <label className="text-xs font-medium">Transaction date<input required name="transactionDate" defaultValue="transaction_date" maxLength={100} className="mt-1 h-9 w-full rounded-md border border-[#d7dee8] px-2 font-normal" /></label>
-                <label className="text-xs font-medium">Amount<input required name="amount" defaultValue="amount" maxLength={100} className="mt-1 h-9 w-full rounded-md border border-[#d7dee8] px-2 font-normal" /></label>
-                <label className="text-xs font-medium">Currency code<input required name="currencyCode" defaultValue="currency_code" maxLength={100} className="mt-1 h-9 w-full rounded-md border border-[#d7dee8] px-2 font-normal" /></label>
+                <label className="text-xs font-medium">Source record key<input required name="sourceRecordKey" value={columnMapping.sourceRecordKey} onChange={(event) => setColumnMapping((current) => ({ ...current, sourceRecordKey: event.target.value }))} maxLength={100} className="mt-1 h-9 w-full rounded-md border border-[#d7dee8] px-2 font-normal" /></label>
+                <label className="text-xs font-medium">Document reference<input name="documentReference" value={columnMapping.documentReference} onChange={(event) => setColumnMapping((current) => ({ ...current, documentReference: event.target.value }))} maxLength={100} className="mt-1 h-9 w-full rounded-md border border-[#d7dee8] px-2 font-normal" /></label>
+                <label className="text-xs font-medium">Transaction date<input required name="transactionDate" value={columnMapping.transactionDate} onChange={(event) => setColumnMapping((current) => ({ ...current, transactionDate: event.target.value }))} maxLength={100} className="mt-1 h-9 w-full rounded-md border border-[#d7dee8] px-2 font-normal" /></label>
+                <label className="text-xs font-medium">Amount<input required name="amount" value={columnMapping.amount} onChange={(event) => setColumnMapping((current) => ({ ...current, amount: event.target.value }))} maxLength={100} className="mt-1 h-9 w-full rounded-md border border-[#d7dee8] px-2 font-normal" /></label>
+                <label className="text-xs font-medium">Currency code<input required name="currencyCode" value={columnMapping.currencyCode} onChange={(event) => setColumnMapping((current) => ({ ...current, currencyCode: event.target.value }))} maxLength={100} className="mt-1 h-9 w-full rounded-md border border-[#d7dee8] px-2 font-normal" /></label>
               </div>
             </details>
             <button
               disabled={busy || !entities.length}
               className="mt-6 rounded-md bg-[#2369c8] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
-              {busy ? "Staging…" : "Stage CSV"}
+              {busy ? "Staging…" : "Stage import"}
             </button>
           </form>
           <section className="overflow-hidden rounded-lg border border-[#e2e6ec] bg-white shadow-sm">

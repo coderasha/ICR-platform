@@ -11,7 +11,12 @@ type Organization = {
   isActive: boolean;
   _count?: { legalEntities: number };
 };
-type CurrentUser = { id: string; email: string; permissions: string[] };
+type CurrentUser = {
+  id: string;
+  email: string;
+  permissions: string[];
+  roles: Array<{ code: string; organizationId: string | null }>;
+};
 type Summary = {
   transactions: number;
   matchedTransactions: number;
@@ -158,7 +163,9 @@ export default function Home() {
       setCreating(false);
     }
   }
-  const canManage = user?.permissions.includes("organizations:manage") ?? false;
+  const canCreateOrganization = user?.roles.some(
+    (role) => role.code === "PLATFORM_ADMIN" && role.organizationId === null,
+  ) ?? false;
   return (
     <div className="min-h-screen bg-[#f6f7f9] text-[#172033]">
       <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col bg-[#10243f] text-[#cfdaea] lg:flex">
@@ -167,7 +174,7 @@ export default function Home() {
             L
           </div>
           <span className="text-base font-semibold tracking-tight text-white">
-            Ledgerline
+            LedgeRecon
           </span>
         </div>
         <nav aria-label="Primary navigation" className="flex-1 px-3 py-6">
@@ -271,7 +278,7 @@ export default function Home() {
               >
                 <option>Current period</option>
               </select>
-              {canManage && (
+              {canCreateOrganization && (
                 <button
                   onClick={() => setShowCreate(true)}
                   className="h-10 rounded-md bg-[#2369c8] px-4 text-sm font-medium text-white shadow-sm hover:bg-[#195aa9]"

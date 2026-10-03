@@ -55,13 +55,13 @@ export default function LoginPage() {
   return (
     <main className="grid min-h-screen bg-[#f5f7fa] lg:grid-cols-[1.1fr_0.9fr]">
       <section className="hidden bg-[#10243f] p-12 text-white lg:flex lg:flex-col">
-        <div className="flex items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-lg bg-[#4f8fe8] font-bold">L</div><span className="text-lg font-semibold">Ledgerline</span></div>
+        <div className="flex items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-lg bg-[#4f8fe8] font-bold">L</div><span className="text-lg font-semibold">LedgeRecon</span></div>
         <div className="my-auto max-w-lg"><p className="mb-5 text-sm font-semibold uppercase tracking-[0.16em] text-[#88aee4]">Intercompany control</p><h1 className="text-4xl font-semibold leading-tight tracking-tight">Confidence for every entity, every close.</h1><p className="mt-5 max-w-md text-base leading-7 text-[#b8c8dd]">A controlled workspace for finance teams to reconcile balances, investigate exceptions, and close with clarity.</p></div>
-        <p className="text-sm text-[#8195b0]">© 2026 Ledgerline Finance Systems</p>
+        <p className="text-sm text-[#8195b0]">© 2026 LedgeRecon Finance Systems</p>
       </section>
       <section className="grid place-items-center p-6">
         <div className="w-full max-w-sm">
-          <div className="mb-9 lg:hidden"><div className="flex items-center gap-3 text-[#10243f]"><div className="grid h-9 w-9 place-items-center rounded-lg bg-[#4f8fe8] font-bold text-white">L</div><span className="text-lg font-semibold">Ledgerline</span></div></div>
+          <div className="mb-9 lg:hidden"><div className="flex items-center gap-3 text-[#10243f]"><div className="grid h-9 w-9 place-items-center rounded-lg bg-[#4f8fe8] font-bold text-white">L</div><span className="text-lg font-semibold">LedgeRecon</span></div></div>
           <p className="text-sm font-medium text-[#526176]">Welcome back</p>
           <h1 className="mt-1 text-3xl font-semibold tracking-tight text-[#172033]">Sign in to your workspace</h1>
           <p className="mt-3 text-sm leading-6 text-[#687386]">Use the credentials issued by your organization administrator.</p>

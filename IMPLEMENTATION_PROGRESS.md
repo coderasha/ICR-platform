@@ -27,7 +27,7 @@
 ### Foundation delivered
 
 - Added `/login`, with validation, submission/error states, and an API session-based sign-in flow.
-- Replaced the starter page with a responsive Ledgerline shell: navigation, account controls, organization filter, real authorized-organization list, create-organization dialog, loading, error and empty states.
+- Replaced the starter page with a responsive LedgeRecon shell: navigation, account controls, organization filter, real authorized-organization list, create-organization dialog, loading, error and empty states.
 - Dashboard financial cards deliberately show `—`/zero only where the persisted financial domain does not exist; no financial metrics or charts are fabricated.
 - Login now sets a short-lived `HttpOnly`, `SameSite=Lax` cookie and no longer returns the JWT to browser application code. Existing Bearer authentication remains for programmatic clients and existing API tests.
 - Enabled credentialed CORS for the configured `WEB_ORIGIN` (default `http://localhost:3000`). Add `WEB_ORIGIN` to deployment configuration when serving the web application separately.

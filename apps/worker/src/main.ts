@@ -4,10 +4,19 @@ import { Redis } from 'ioredis';
 import { canWorkerClaimImport } from './import-lifecycle.js';
 import { normalizeCsv } from './csv-normalizer.js';
 import { createHash } from 'node:crypto';
+import * as XLSX from 'xlsx';
 import { matchReconciliationTransactions } from './reconciliation-matching.js';
 import { assertWorkerStorageConfiguration, assertWorkerStorageReady, readStoredObject } from './object-storage.js';
 
 type ImportJob = { batchId: string; organizationId: string };
+
+function workbookToCsv(content: Buffer): string {
+  const workbook = XLSX.read(content, { type: 'buffer', cellDates: false });
+  const firstSheet = workbook.SheetNames[0];
+  if (!firstSheet) throw new Error('Workbook does not contain a worksheet');
+  return XLSX.utils.sheet_to_csv(workbook.Sheets[firstSheet], { blankrows: false });
+}
+
 if (process.env.NODE_ENV === 'production' && !process.env.REDIS_URL) throw new Error('REDIS_URL must be configured for the worker in production');
 assertWorkerStorageConfiguration();
 if (process.env.NODE_ENV === 'production') await assertWorkerStorageReady();
@@ -15,11 +24,15 @@ const prisma = new PrismaClient();
 const connection = new Redis(process.env.REDIS_URL ?? 'redis://:replace_with_a_different_strong_local_password@127.0.0.1:6379', { maxRetriesPerRequest: null });
 
 const worker = new Worker<ImportJob>('icr-imports', async (job) => {
-  const batch = await prisma.importBatch.findFirst({ where: { id: job.data.batchId, organizationId: job.data.organizationId }, select: { id: true, status: true, totalRows: true, storageKey: true, columnMapping: true, organizationId: true, legalEntityId: true } });
+  const batch = await prisma.importBatch.findFirst({ where: { id: job.data.batchId, organizationId: job.data.organizationId }, select: { id: true, status: true, totalRows: true, storageKey: true, columnMapping: true, fileType: true, organizationId: true, legalEntityId: true } });
   if (!batch || !canWorkerClaimImport(batch.status)) return;
   await prisma.importBatch.update({ where: { id: batch.id }, data: { status: ImportStatus.PROCESSING, startedAt: new Date(), failureReason: null } });
   try {
-    const rows = normalizeCsv((await readStoredObject(batch.storageKey)).toString('utf8'), batch.columnMapping as Record<string, string> | undefined);
+    const content = await readStoredObject(batch.storageKey);
+    const input = batch.fileType === 'XLSX'
+      ? workbookToCsv(content)
+      : content.toString('utf8');
+    const rows = normalizeCsv(input, batch.columnMapping as Record<string, string> | undefined);
     const normalizedDates = rows.flatMap((row) => row.normalized ? [new Date(row.normalized.transactionDate)] : []);
     if (normalizedDates.length) {
       const earliest = new Date(Math.min(...normalizedDates.map((date) => date.getTime()))); const latest = new Date(Math.max(...normalizedDates.map((date) => date.getTime())));

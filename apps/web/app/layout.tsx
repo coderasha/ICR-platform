@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Ledgerline | Intercompany reconciliation",
+  title: "LedgeRecon | Intercompany reconciliation",
   description: "A controlled workspace for intercompany reconciliation.",
 };
 

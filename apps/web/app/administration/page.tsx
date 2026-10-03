@@ -77,7 +77,7 @@ export default function AdministrationPage() {
     <main className="min-h-screen bg-[#f6f7f9] text-[#172033]">
       <header className="flex h-[73px] items-center justify-between border-b border-[#e4e7ec] bg-white px-5 sm:px-8">
         <Link href="/" className="font-semibold">
-          Ledgerline
+          LedgeRecon
         </Link>
         <Link href="/" className="text-sm font-medium text-[#2467bf]">
           ← Overview
